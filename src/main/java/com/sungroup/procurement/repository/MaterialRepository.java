@@ -58,4 +58,7 @@ public interface MaterialRepository extends BaseRepository<Material, Long> {
 
     // Alternative: Simple method using Spring Data naming convention
     List<Material> findByNameContainingIgnoreCaseAndIsDeletedFalseOrderByName(String name);
+
+    boolean existsByNameIgnoreCaseAndIsDeletedFalse(String name);
+    Optional<Material> findByNameIgnoreCaseAndIsDeletedFalse(String name);
 }

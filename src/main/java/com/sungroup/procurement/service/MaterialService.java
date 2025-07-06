@@ -121,8 +121,8 @@ public class MaterialService {
     @Transactional
     public ApiResponse<Material> createMaterial(Material material) {
         try {
+            preprocessMaterial(material);
             validateMaterialForCreate(material);
-
             Material savedMaterial = materialRepository.save(material);
             log.info("Material created successfully: {}", savedMaterial.getName());
 
@@ -142,6 +142,7 @@ public class MaterialService {
             Material existingMaterial = materialRepository.findByIdActive(id)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.MATERIAL_NOT_FOUND));
 
+            preprocessMaterial(materialDetails);
             validateMaterialForUpdate(materialDetails, existingMaterial);
 
             // Update fields
@@ -270,21 +271,31 @@ public class MaterialService {
             throw new ValidationException("Material name is required");
         }
 
-        // Check for duplicates
-        if (materialRepository.existsByNameAndIsDeletedFalse(material.getName())) {
+        // After preprocessing, name should already be trimmed, but double-check
+        String trimmedName = material.getName().trim();
+        if (trimmedName.isEmpty()) {
+            throw new ValidationException("Material name cannot be empty or only spaces");
+        }
+
+        // CHANGE: Use case-insensitive duplicate check
+        if (materialRepository.existsByNameIgnoreCaseAndIsDeletedFalse(trimmedName)) {
             throw new DuplicateEntityException("Material name already exists");
         }
     }
 
+
     private void validateMaterialForUpdate(Material materialDetails, Material existingMaterial) {
         // Validate name if provided (name is required field)
         if (materialDetails.getName() != null) {
-            if (materialDetails.getName().trim().isEmpty()) {
+            String trimmedName = materialDetails.getName().trim();
+
+            if (trimmedName.isEmpty()) {
                 throw new ValidationException("Material name cannot be empty");
             }
-            // Check for duplicates only if name is changing
-            if (!materialDetails.getName().equals(existingMaterial.getName())) {
-                if (materialRepository.existsByNameAndIsDeletedFalse(materialDetails.getName())) {
+
+            // CHANGE: Use case-insensitive comparison and duplicate check
+            if (!trimmedName.equalsIgnoreCase(existingMaterial.getName())) {
+                if (materialRepository.existsByNameIgnoreCaseAndIsDeletedFalse(trimmedName)) {
                     throw new DuplicateEntityException("Material name already exists");
                 }
             }
@@ -338,4 +349,18 @@ public class MaterialService {
             return ApiResponse.error("Failed to fetch material names with IDs");
         }
     }
+
+    private void preprocessMaterial(Material material) {
+        // Trim name
+        if (material.getName() != null) {
+            material.setName(material.getName().trim());
+        }
+
+        // Trim unit
+        if (material.getUnit() != null) {
+            String trimmedUnit = material.getUnit().trim();
+            material.setUnit(trimmedUnit.isEmpty() ? null : trimmedUnit);
+        }
+    }
+
 }
