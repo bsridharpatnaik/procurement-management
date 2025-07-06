@@ -1,5 +1,6 @@
 package com.sungroup.procurement.entity;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.sungroup.procurement.entity.enums.Priority;
 import com.sungroup.procurement.entity.enums.ProcurementStatus;
 import lombok.AllArgsConstructor;
@@ -47,7 +48,12 @@ public class ProcurementRequest extends BaseEntity {
     private Priority priority = Priority.MEDIUM;
 
     @Column(name = "expected_delivery_date")
+    @JsonFormat(pattern = "yyyy-MM-dd", timezone = "Asia/Kolkata")
     private LocalDate expectedDeliveryDate;
+
+    @Column(name = "approved_date")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "Asia/Kolkata")
+    private LocalDateTime approvedDate;
 
     @Column(name = "justification", columnDefinition = "TEXT")
     private String justification;
@@ -58,9 +64,6 @@ public class ProcurementRequest extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "approved_by")
     private User approvedBy;
-
-    @Column(name = "approved_date")
-    private LocalDateTime approvedDate;
 
     @Column(name = "is_short_closed", nullable = false)
     private Boolean isShortClosed = false;
