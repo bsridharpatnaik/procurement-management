@@ -3,7 +3,9 @@ package com.sungroup.procurement.specification;
 import com.sungroup.procurement.entity.Vendor;
 import org.springframework.data.jpa.domain.Specification;
 
+import javax.persistence.criteria.Predicate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 public class VendorSpecification extends BaseSpecification<Vendor> {
@@ -14,6 +16,25 @@ public class VendorSpecification extends BaseSpecification<Vendor> {
 
     public static Specification<Vendor> hasName(String name) {
         return fieldContains("name", name);
+    }
+
+    public static Specification<Vendor> searchByMultipleNames(List<String> names) {
+        return (root, query, cb) -> {
+            if (names == null || names.isEmpty()) return cb.conjunction();
+
+            // Create OR conditions for each name (partial match)
+            List<Predicate> namePredicates = new ArrayList<>();
+            for (String name : names) {
+                if (name != null && !name.trim().isEmpty()) {
+                    namePredicates.add(
+                            cb.like(cb.lower(root.get("name")), "%" + name.toLowerCase() + "%")
+                    );
+                }
+            }
+            return namePredicates.isEmpty() ?
+                    cb.conjunction() :
+                    cb.or(namePredicates.toArray(new Predicate[0]));
+        };
     }
 
     public static Specification<Vendor> hasContactNumber(String contactNumber) {

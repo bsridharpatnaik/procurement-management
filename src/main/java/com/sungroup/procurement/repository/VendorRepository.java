@@ -1,6 +1,8 @@
 package com.sungroup.procurement.repository;
 
+import com.sungroup.procurement.dto.response.VendorNameDto;
 import com.sungroup.procurement.entity.Vendor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -26,11 +28,27 @@ public interface VendorRepository extends BaseRepository<Vendor, Long> {
             "v.contactNumber LIKE CONCAT('%', :keyword, '%'))")
     List<Vendor> searchVendors(@Param("keyword") String keyword);
 
-    @Query("SELECT v FROM Vendor v WHERE v.isDeleted = false AND " +
-            "v.email IS NOT NULL AND v.email != '' AND v.email LIKE '%@%'")
-    List<Vendor> findVendorsWithValidEmail();
+    boolean existsByNameIgnoreCaseAndIsDeletedFalse(String name);
 
-    @Query("SELECT v FROM Vendor v WHERE v.isDeleted = false AND " +
-            "v.contactNumber IS NOT NULL AND v.contactNumber != ''")
-    List<Vendor> findVendorsWithValidContactNumber();
+    Optional<Vendor> findByNameIgnoreCaseAndIsDeletedFalse(String name);
+
+    // ADD typeahead methods
+    @Query("SELECT v.name FROM Vendor v WHERE v.isDeleted = false ORDER BY v.name")
+    List<String> findAllActiveVendorNames();
+
+    @Query("SELECT v.name FROM Vendor v WHERE v.isDeleted = false " +
+            "AND LOWER(v.name) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "ORDER BY v.name")
+    List<String> findVendorNamesByNameContainingIgnoreCase(@Param("search") String search);
+
+    @Query("SELECT new com.sungroup.procurement.dto.response.VendorNameDto(v.id, v.name, v.email, v.contactNumber) " +
+            "FROM Vendor v WHERE v.isDeleted = false ORDER BY v.name")
+    List<VendorNameDto> findAllActiveVendorNamesWithIds(Pageable pageable);
+
+    @Query("SELECT new com.sungroup.procurement.dto.response.VendorNameDto(v.id, v.name, v.email, v.contactNumber) " +
+            "FROM Vendor v WHERE v.isDeleted = false " +
+            "AND LOWER(v.name) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "ORDER BY v.name")
+    List<VendorNameDto> findVendorNamesWithIdsByNameContaining(@Param("search") String search, Pageable pageable);
+
 }

@@ -3,6 +3,7 @@ package com.sungroup.procurement.controller;
 import com.sungroup.procurement.constants.ProjectConstants;
 import com.sungroup.procurement.dto.request.FilterDataList;
 import com.sungroup.procurement.dto.response.ApiResponse;
+import com.sungroup.procurement.dto.response.VendorNameDto;
 import com.sungroup.procurement.entity.Vendor;
 import com.sungroup.procurement.service.VendorService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -70,20 +71,6 @@ public class VendorController {
     }
 
     @Operation(
-            summary = "Get vendor by email",
-            description = "Retrieve a specific vendor by its email address"
-    )
-    @GetMapping("/email/{email}")
-    public ResponseEntity<ApiResponse<Vendor>> getVendorByEmail(
-            @Parameter(description = "Vendor Email", required = true, example = "supplier@abc.com")
-            @PathVariable String email) {
-
-        log.info("Fetching vendor by email: {}", email);
-        ApiResponse<Vendor> response = vendorService.findByEmail(email);
-        return ResponseEntity.ok(response);
-    }
-
-    @Operation(
             summary = "Search vendors",
             description = "Search vendors by keyword across name, email, and contact number fields"
     )
@@ -96,28 +83,6 @@ public class VendorController {
 
         log.info("Searching vendors with keyword: {}", keyword);
         ApiResponse<List<Vendor>> response = vendorService.searchVendors(keyword, pageable);
-        return ResponseEntity.ok(response);
-    }
-
-    @Operation(
-            summary = "Get vendors with valid email",
-            description = "Retrieve all vendors that have valid email addresses"
-    )
-    @GetMapping("/valid-email")
-    public ResponseEntity<ApiResponse<List<Vendor>>> getVendorsWithValidEmail() {
-        log.info("Fetching vendors with valid email");
-        ApiResponse<List<Vendor>> response = vendorService.findVendorsWithValidEmail();
-        return ResponseEntity.ok(response);
-    }
-
-    @Operation(
-            summary = "Get vendors with valid contact",
-            description = "Retrieve all vendors that have valid contact numbers"
-    )
-    @GetMapping("/valid-contact")
-    public ResponseEntity<ApiResponse<List<Vendor>>> getVendorsWithValidContact() {
-        log.info("Fetching vendors with valid contact");
-        ApiResponse<List<Vendor>> response = vendorService.findVendorsWithValidContact();
         return ResponseEntity.ok(response);
     }
 
@@ -182,5 +147,35 @@ public class VendorController {
         } else {
             return ResponseEntity.badRequest().body(response);
         }
+    }
+
+    @Operation(
+            summary = "Get vendor names for typeahead",
+            description = "Retrieve all active vendor names for autocomplete/typeahead functionality"
+    )
+    @GetMapping("/names")
+    public ResponseEntity<ApiResponse<List<String>>> getAllVendorNames(
+            @Parameter(description = "Search query for filtering names", example = "ABC")
+            @RequestParam(required = false) String search) {
+
+        log.info("Fetching vendor names for typeahead with search: {}", search);
+        ApiResponse<List<String>> response = vendorService.getAllVendorNames(search);
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(
+            summary = "Get vendor names and IDs for typeahead",
+            description = "Retrieve vendor names with their IDs and contact info for autocomplete with selection"
+    )
+    @GetMapping("/names-with-ids")
+    public ResponseEntity<ApiResponse<List<VendorNameDto>>> getVendorNamesWithIds(
+            @Parameter(description = "Search query for filtering names", example = "ABC")
+            @RequestParam(required = false) String search,
+            @Parameter(description = "Maximum number of results", example = "50")
+            @RequestParam(defaultValue = "50") Integer limit) {
+
+        log.info("Fetching vendor names with IDs for typeahead with search: {} and limit: {}", search, limit);
+        ApiResponse<List<VendorNameDto>> response = vendorService.getVendorNamesWithIds(search, limit);
+        return ResponseEntity.ok(response);
     }
 }

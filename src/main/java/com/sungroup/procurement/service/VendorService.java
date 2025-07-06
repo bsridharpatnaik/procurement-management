@@ -4,7 +4,9 @@ import com.sungroup.procurement.constants.ProjectConstants;
 import com.sungroup.procurement.dto.request.FilterDataList;
 import com.sungroup.procurement.dto.response.ApiResponse;
 import com.sungroup.procurement.dto.response.PaginationResponse;
+import com.sungroup.procurement.dto.response.VendorNameDto;
 import com.sungroup.procurement.entity.Vendor;
+import com.sungroup.procurement.exception.DuplicateEntityException;
 import com.sungroup.procurement.exception.EntityNotFoundException;
 import com.sungroup.procurement.exception.ValidationException;
 import com.sungroup.procurement.repository.MaterialPriceHistoryRepository;
@@ -14,7 +16,9 @@ import com.sungroup.procurement.specification.VendorSpecification;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,20 +65,6 @@ public class VendorService {
         }
     }
 
-    public ApiResponse<Vendor> findByEmail(String email) {
-        try {
-            Vendor vendor = vendorRepository.findByEmailAndIsDeletedFalse(email)
-                    .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.VENDOR_NOT_FOUND));
-
-            return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, vendor);
-        } catch (EntityNotFoundException e) {
-            return ApiResponse.error(e.getMessage());
-        } catch (Exception e) {
-            log.error("Error fetching vendor by email: {}", email, e);
-            return ApiResponse.error("Failed to fetch vendor");
-        }
-    }
-
     public ApiResponse<List<Vendor>> searchVendors(String keyword, Pageable pageable) {
         try {
             Specification<Vendor> spec = VendorSpecification.isNotDeleted()
@@ -90,43 +80,16 @@ public class VendorService {
         }
     }
 
-    public ApiResponse<List<Vendor>> findVendorsWithValidEmail() {
-        try {
-            Specification<Vendor> spec = VendorSpecification.isNotDeleted()
-                    .and(VendorSpecification.hasValidEmail());
-
-            List<Vendor> vendors = vendorRepository.findAll(spec);
-            return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, vendors);
-        } catch (Exception e) {
-            log.error("Error fetching vendors with valid email", e);
-            return ApiResponse.error("Failed to fetch vendors");
-        }
-    }
-
-    public ApiResponse<List<Vendor>> findVendorsWithValidContact() {
-        try {
-            Specification<Vendor> spec = VendorSpecification.isNotDeleted()
-                    .and(VendorSpecification.hasValidContactNumber());
-
-            List<Vendor> vendors = vendorRepository.findAll(spec);
-            return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, vendors);
-        } catch (Exception e) {
-            log.error("Error fetching vendors with valid contact", e);
-            return ApiResponse.error("Failed to fetch vendors");
-        }
-    }
-
     // CREATE Operations
     @Transactional
     public ApiResponse<Vendor> createVendor(Vendor vendor) {
         try {
+            preprocessVendor(vendor);
             validateVendorForCreate(vendor);
-
             Vendor savedVendor = vendorRepository.save(vendor);
             log.info("Vendor created successfully: {}", savedVendor.getName());
-
             return ApiResponse.success(ProjectConstants.DATA_CREATED_SUCCESS, savedVendor);
-        } catch (ValidationException e) {
+        } catch (ValidationException | DuplicateEntityException e) {
             return ApiResponse.error(e.getMessage());
         } catch (Exception e) {
             log.error("Error creating vendor", e);
@@ -141,18 +104,23 @@ public class VendorService {
             Vendor existingVendor = vendorRepository.findByIdActive(id)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.VENDOR_NOT_FOUND));
 
-            validateVendorForUpdate(vendorDetails);
-
+            preprocessVendor(vendorDetails);
+            validateVendorForUpdate(vendorDetails, existingVendor);
             // Update fields
-            existingVendor.setName(vendorDetails.getName());
-            existingVendor.setContactNumber(vendorDetails.getContactNumber());
-            existingVendor.setEmail(vendorDetails.getEmail());
-
+            if (vendorDetails.getName() != null) {
+                existingVendor.setName(vendorDetails.getName());
+            }
+            if (vendorDetails.getContactNumber() != null) {
+                existingVendor.setContactNumber(vendorDetails.getContactNumber());
+            }
+            if (vendorDetails.getEmail() != null) {
+                existingVendor.setEmail(vendorDetails.getEmail());
+            }
             Vendor updatedVendor = vendorRepository.save(existingVendor);
             log.info("Vendor updated successfully: {}", updatedVendor.getName());
 
             return ApiResponse.success(ProjectConstants.DATA_UPDATED_SUCCESS, updatedVendor);
-        } catch (EntityNotFoundException | ValidationException e) {
+        } catch (EntityNotFoundException | ValidationException | DuplicateEntityException e) {
             return ApiResponse.error(e.getMessage());
         } catch (Exception e) {
             log.error("Error updating vendor with id: {}", id, e);
@@ -210,25 +178,33 @@ public class VendorService {
             return spec;
         }
 
-        String name = filterService.getStringValue(filterData, "name");
+        // CHANGE: Get multiple names from filter (instead of single name)
+        List<String> names = filterService.getStringValues(filterData, "name");
         String contactNumber = filterService.getStringValue(filterData, "contactNumber");
         String email = filterService.getStringValue(filterData, "email");
         List<Long> ids = filterService.getLongValues(filterData, "ids");
         String createdBy = filterService.getStringValue(filterData, "createdBy");
         String keyword = filterService.getStringValue(filterData, "keyword");
-        Boolean hasValidEmail = filterService.getBooleanValue(filterData, "hasValidEmail");
-        Boolean hasValidContact = filterService.getBooleanValue(filterData, "hasValidContact");
 
         FilterService.DateRange createdDateRange = filterService.getDateRange(filterData, "startDate", "endDate");
 
-        if (name != null) spec = spec.and(VendorSpecification.hasName(name));
+        // CHANGE: Enhanced name filtering - supports multiple names
+        if (names != null && !names.isEmpty()) {
+            if (names.size() == 1) {
+                // Single name - use contains (partial match)
+                spec = spec.and(VendorSpecification.hasName(names.get(0)));
+            } else {
+                // Multiple names - use OR logic with partial match
+                spec = spec.and(VendorSpecification.searchByMultipleNames(names));
+            }
+        }
+
         if (contactNumber != null) spec = spec.and(VendorSpecification.hasContactNumber(contactNumber));
         if (email != null) spec = spec.and(VendorSpecification.hasEmail(email));
         if (ids != null && !ids.isEmpty()) spec = spec.and(VendorSpecification.hasIds(ids));
         if (createdBy != null) spec = spec.and(VendorSpecification.createdBy(createdBy));
         if (keyword != null) spec = spec.and(VendorSpecification.searchByKeyword(keyword));
-        if (hasValidEmail != null && hasValidEmail) spec = spec.and(VendorSpecification.hasValidEmail());
-        if (hasValidContact != null && hasValidContact) spec = spec.and(VendorSpecification.hasValidContactNumber());
+
         if (createdDateRange != null) {
             spec = spec.and(VendorSpecification.createdBetween(
                     createdDateRange.getStartDate(), createdDateRange.getEndDate()));
@@ -242,6 +218,17 @@ public class VendorService {
             throw new ValidationException("Vendor name is required");
         }
 
+        // After preprocessing, name should already be trimmed, but double-check
+        String trimmedName = vendor.getName().trim();
+        if (trimmedName.isEmpty()) {
+            throw new ValidationException("Vendor name cannot be empty or only spaces");
+        }
+
+        // ADD: Case-insensitive duplicate check
+        if (vendorRepository.existsByNameIgnoreCaseAndIsDeletedFalse(trimmedName)) {
+            throw new DuplicateEntityException("Vendor name already exists");
+        }
+
         // Validate email format if provided
         if (vendor.getEmail() != null && !vendor.getEmail().trim().isEmpty()) {
             if (!isValidEmail(vendor.getEmail())) {
@@ -250,11 +237,20 @@ public class VendorService {
         }
     }
 
-    private void validateVendorForUpdate(Vendor vendorDetails) {
+    private void validateVendorForUpdate(Vendor vendorDetails, Vendor existingVendor) {
         // Validate name if provided (name is required field)
         if (vendorDetails.getName() != null) {
-            if (vendorDetails.getName().trim().isEmpty()) {
+            String trimmedName = vendorDetails.getName().trim();
+
+            if (trimmedName.isEmpty()) {
                 throw new ValidationException("Vendor name cannot be empty");
+            }
+
+            // ADD: Case-insensitive comparison and duplicate check
+            if (!trimmedName.equalsIgnoreCase(existingVendor.getName())) {
+                if (vendorRepository.existsByNameIgnoreCaseAndIsDeletedFalse(trimmedName)) {
+                    throw new DuplicateEntityException("Vendor name already exists");
+                }
             }
         }
 
@@ -275,5 +271,67 @@ public class VendorService {
 
     private boolean isValidEmail(String email) {
         return email.contains("@") && email.contains(".");
+    }
+
+    private void preprocessVendor(Vendor vendor) {
+        // Trim name
+        if (vendor.getName() != null) {
+            vendor.setName(vendor.getName().trim());
+        }
+
+        // Trim email
+        if (vendor.getEmail() != null) {
+            String trimmedEmail = vendor.getEmail().trim();
+            vendor.setEmail(trimmedEmail.isEmpty() ? null : trimmedEmail);
+        }
+
+        // Trim contact number
+        if (vendor.getContactNumber() != null) {
+            String trimmedContact = vendor.getContactNumber().trim();
+            vendor.setContactNumber(trimmedContact.isEmpty() ? null : trimmedContact);
+        }
+    }
+
+    public ApiResponse<List<String>> getAllVendorNames(String search) {
+        try {
+            List<String> vendorNames;
+
+            if (search != null && !search.trim().isEmpty()) {
+                // Filtered search
+                vendorNames = vendorRepository.findVendorNamesByNameContainingIgnoreCase(search.trim());
+            } else {
+                // All vendor names
+                vendorNames = vendorRepository.findAllActiveVendorNames();
+            }
+
+            // Sort alphabetically
+            vendorNames.sort(String.CASE_INSENSITIVE_ORDER);
+
+            return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, vendorNames);
+        } catch (Exception e) {
+            log.error("Error fetching vendor names for typeahead with search: {}", search, e);
+            return ApiResponse.error("Failed to fetch vendor names");
+        }
+    }
+
+    public ApiResponse<List<VendorNameDto>> getVendorNamesWithIds(String search, Integer limit) {
+        try {
+            List<VendorNameDto> vendors;
+
+            Pageable pageable = PageRequest.of(0, limit != null ? limit : 50, Sort.by("name"));
+
+            if (search != null && !search.trim().isEmpty()) {
+                // Filtered search with limit
+                vendors = vendorRepository.findVendorNamesWithIdsByNameContaining(search.trim(), pageable);
+            } else {
+                // All vendors with limit
+                vendors = vendorRepository.findAllActiveVendorNamesWithIds(pageable);
+            }
+
+            return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, vendors);
+        } catch (Exception e) {
+            log.error("Error fetching vendor names with IDs for typeahead", e);
+            return ApiResponse.error("Failed to fetch vendor names with IDs");
+        }
     }
 }
