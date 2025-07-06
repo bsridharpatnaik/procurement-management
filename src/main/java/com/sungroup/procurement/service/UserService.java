@@ -11,6 +11,7 @@ import com.sungroup.procurement.exception.DuplicateEntityException;
 import com.sungroup.procurement.exception.EntityNotFoundException;
 import com.sungroup.procurement.exception.ValidationException;
 import com.sungroup.procurement.repository.FactoryRepository;
+import com.sungroup.procurement.repository.ProcurementRequestRepository;
 import com.sungroup.procurement.repository.UserRepository;
 import com.sungroup.procurement.specification.UserSpecification;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -35,7 +37,7 @@ public class UserService {
     private final FactoryRepository factoryRepository;
     private final FilterService filterService;
     private final PasswordEncoder passwordEncoder;
-
+    private final ProcurementRequestRepository procurementRequestRepository;
     // READ Operations
     public ApiResponse<List<User>> findUsersWithFilters(FilterDataList filterData, Pageable pageable) {
         try {
@@ -150,12 +152,39 @@ public class UserService {
             User user = userRepository.findByIdAndIsDeletedFalse(id)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.USER_NOT_FOUND));
 
-            // Soft delete
+            List<String> dependencies = new ArrayList<>();
+
+            // Check created requests - using createdBy as String field
+            long createdRequestsCount = procurementRequestRepository.countByCreatedByAndIsDeletedFalse(user.getUsername());
+            if (createdRequestsCount > 0) {
+                dependencies.add("Created Requests: " + createdRequestsCount + " requests");
+            }
+
+            // Check assigned requests - if assignedTo is User entity
+            long assignedRequestsCount = procurementRequestRepository.countByAssignedToIdAndIsDeletedFalse(id);
+            if (assignedRequestsCount > 0) {
+                dependencies.add("Assigned Requests: " + assignedRequestsCount + " requests");
+            }
+
+            // Check approved requests - if approvedBy is User entity
+            long approvedRequestsCount = procurementRequestRepository.countByApprovedByIdAndIsDeletedFalse(id);
+            if (approvedRequestsCount > 0) {
+                dependencies.add("Approved Requests: " + approvedRequestsCount + " requests");
+            }
+
+            if (!dependencies.isEmpty()) {
+                String message = "Cannot delete user '" + user.getUsername() +
+                        "'. User is associated with: " + String.join("; ", dependencies);
+                return ApiResponse.error(message);
+            }
+
+            // Soft delete if no dependencies
             user.setIsDeleted(true);
             userRepository.save(user);
 
             log.info("User soft deleted successfully: {}", user.getUsername());
-            return ApiResponse.success(ProjectConstants.DATA_DELETED_SUCCESS, "User deleted successfully");
+            return ApiResponse.success(ProjectConstants.DATA_DELETED_SUCCESS,
+                    "User '" + user.getUsername() + "' deleted successfully");
         } catch (EntityNotFoundException e) {
             return ApiResponse.error(e.getMessage());
         } catch (Exception e) {
@@ -226,12 +255,32 @@ public class UserService {
     }
 
     private void validateUserForUpdate(User userDetails, User existingUser) {
-        if (userDetails.getEmail() != null && !userDetails.getEmail().equals(existingUser.getEmail())) {
-            if (userRepository.existsByEmail(userDetails.getEmail())) {
-                throw new DuplicateEntityException("Email already exists");
+        // Validate fullName if provided
+        if (userDetails.getFullName() != null) {
+            if (userDetails.getFullName().trim().isEmpty()) {
+                throw new ValidationException("Full name cannot be empty");
             }
         }
+
+        // Validate email if provided
+        if (userDetails.getEmail() != null) {
+            if (userDetails.getEmail().trim().isEmpty()) {
+                throw new ValidationException("Email cannot be empty");
+            }
+            // Check for duplicates only if email is changing
+            if (!userDetails.getEmail().equals(existingUser.getEmail())) {
+                if (userRepository.existsByEmail(userDetails.getEmail())) {
+                    throw new DuplicateEntityException("Email already exists");
+                }
+            }
+        }
+
+        // Validate role if provided
+        if (userDetails.getRole() == null) {
+            throw new ValidationException("Role is required");
+        }
     }
+
 
     private Set<Factory> validateAndGetFactories(Set<Factory> factories) {
         Set<Factory> validFactories = new HashSet<>();

@@ -248,14 +248,24 @@ public class ProcurementRequestService {
 
     // DELETE Operations
     @Transactional
-    public ApiResponse<String> deleteProcurementRequest(Long id) {
+    public ApiResponse<String> deleteProcurementRequestRestricted(Long id) {
         try {
             ProcurementRequest request = procurementRequestRepository.findByIdActive(id)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
 
-            // Can only delete draft requests
+            // Only allow deletion of DRAFT requests that have no line items or only draft line items
             if (request.getStatus() != ProcurementStatus.DRAFT) {
-                throw new ValidationException("Can only delete draft requests");
+                return ApiResponse.error("Only draft procurement requests can be deleted.");
+            }
+
+            // Check if any line items have been processed (have vendor assignments, prices, etc.)
+            boolean hasProcessedLineItems = request.getLineItems().stream()
+                    .anyMatch(item -> item.getAssignedVendor() != null ||
+                            item.getAssignedPrice() != null ||
+                            item.getStatus() != LineItemStatus.PENDING);
+
+            if (hasProcessedLineItems) {
+                return ApiResponse.error("Cannot delete request. Some line items have been processed.");
             }
 
             // Soft delete
@@ -264,7 +274,7 @@ public class ProcurementRequestService {
 
             log.info("Procurement request soft deleted: {}", request.getRequestNumber());
             return ApiResponse.success(ProjectConstants.DATA_DELETED_SUCCESS, "Procurement request deleted successfully");
-        } catch (EntityNotFoundException | ValidationException e) {
+        } catch (EntityNotFoundException e) {
             return ApiResponse.error(e.getMessage());
         } catch (Exception e) {
             log.error("Error deleting procurement request with id: {}", id, e);

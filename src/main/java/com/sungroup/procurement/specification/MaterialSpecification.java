@@ -3,8 +3,11 @@ package com.sungroup.procurement.specification;
 import com.sungroup.procurement.entity.Material;
 import org.springframework.data.jpa.domain.Specification;
 
+import javax.persistence.criteria.Predicate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class MaterialSpecification extends BaseSpecification<Material> {
 
@@ -68,4 +71,41 @@ public class MaterialSpecification extends BaseSpecification<Material> {
             );
         };
     }
+
+    public static Specification<Material> searchByMultipleNames(List<String> names) {
+        return (root, query, cb) -> {
+            if (names == null || names.isEmpty()) return cb.conjunction();
+
+            // Create OR conditions for each name (partial match)
+            List<Predicate> namePredicates = new ArrayList<>();
+            for (String name : names) {
+                if (name != null && !name.trim().isEmpty()) {
+                    namePredicates.add(
+                            cb.like(cb.lower(root.get("name")), "%" + name.toLowerCase() + "%")
+                    );
+                }
+            }
+
+            return namePredicates.isEmpty() ?
+                    cb.conjunction() :
+                    cb.or(namePredicates.toArray(new Predicate[0]));
+        };
+    }
+
+    public static Specification<Material> hasExactNames(List<String> names) {
+        return (root, query, cb) -> {
+            if (names == null || names.isEmpty()) return cb.conjunction();
+
+            // For exact name matches
+            List<String> cleanNames = names.stream()
+                    .filter(name -> name != null && !name.trim().isEmpty())
+                    .map(String::trim)
+                    .collect(Collectors.toList());
+
+            return cleanNames.isEmpty() ?
+                    cb.conjunction() :
+                    root.get("name").in(cleanNames);
+        };
+    }
+
 }

@@ -3,6 +3,7 @@ package com.sungroup.procurement.controller;
 import com.sungroup.procurement.constants.ProjectConstants;
 import com.sungroup.procurement.dto.request.FilterDataList;
 import com.sungroup.procurement.dto.response.ApiResponse;
+import com.sungroup.procurement.dto.response.MaterialNameDto;
 import com.sungroup.procurement.entity.Material;
 import com.sungroup.procurement.service.MaterialService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -186,4 +187,35 @@ public class MaterialController {
             return ResponseEntity.badRequest().body(response);
         }
     }
+
+    @Operation(
+            summary = "Get material names for typeahead",
+            description = "Retrieve all active material names for autocomplete/typeahead functionality"
+    )
+    @GetMapping("/names")
+    public ResponseEntity<ApiResponse<List<String>>> getAllMaterialNames(
+            @Parameter(description = "Search query for filtering names", example = "steel")
+            @RequestParam(required = false) String search) {
+
+        log.info("Fetching material names for typeahead with search: {}", search);
+        ApiResponse<List<String>> response = materialService.getAllMaterialNames(search);
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(
+            summary = "Get material names and IDs for typeahead",
+            description = "Retrieve material names with their IDs for autocomplete with selection"
+    )
+    @GetMapping("/names-with-ids")
+    public ResponseEntity<ApiResponse<List<MaterialNameDto>>> getMaterialNamesWithIds(
+            @Parameter(description = "Search query for filtering names", example = "steel")
+            @RequestParam(required = false) String search,
+            @Parameter(description = "Maximum number of results", example = "50")
+            @RequestParam(defaultValue = "50") Integer limit) {
+
+        log.info("Fetching material names with IDs for typeahead with search: {} and limit: {}", search, limit);
+        ApiResponse<List<MaterialNameDto>> response = materialService.getMaterialNamesWithIds(search, limit);
+        return ResponseEntity.ok(response);
+    }
+
 }

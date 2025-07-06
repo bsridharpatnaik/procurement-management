@@ -1,6 +1,8 @@
 package com.sungroup.procurement.repository;
 
+import com.sungroup.procurement.dto.response.MaterialNameDto;
 import com.sungroup.procurement.entity.Material;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -31,4 +33,29 @@ public interface MaterialRepository extends BaseRepository<Material, Long> {
 
     @Query("SELECT DISTINCT m.unit FROM Material m WHERE m.isDeleted = false AND m.unit IS NOT NULL ORDER BY m.unit")
     List<String> findAllDistinctUnits();
+
+    // Get all active material names only
+    @Query("SELECT m.name FROM Material m WHERE m.isDeleted = false ORDER BY m.name")
+    List<String> findAllActiveMaterialNames();
+
+    // Search material names by partial match
+    @Query("SELECT m.name FROM Material m WHERE m.isDeleted = false " +
+            "AND LOWER(m.name) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "ORDER BY m.name")
+    List<String> findMaterialNamesByNameContainingIgnoreCase(@Param("search") String search);
+
+    // Get material names with IDs for selection
+    @Query("SELECT new com.sungroup.procurement.dto.response.MaterialNameDto(m.id, m.name, m.unit) " +
+            "FROM Material m WHERE m.isDeleted = false ORDER BY m.name")
+    List<MaterialNameDto> findAllActiveMaterialNamesWithIds(Pageable pageable);
+
+    // Search material names with IDs by partial match
+    @Query("SELECT new com.sungroup.procurement.dto.response.MaterialNameDto(m.id, m.name, m.unit) " +
+            "FROM Material m WHERE m.isDeleted = false " +
+            "AND LOWER(m.name) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "ORDER BY m.name")
+    List<MaterialNameDto> findMaterialNamesWithIdsByNameContaining(@Param("search") String search, Pageable pageable);
+
+    // Alternative: Simple method using Spring Data naming convention
+    List<Material> findByNameContainingIgnoreCaseAndIsDeletedFalseOrderByName(String name);
 }

@@ -7,6 +7,8 @@ import com.sungroup.procurement.dto.response.PaginationResponse;
 import com.sungroup.procurement.entity.Vendor;
 import com.sungroup.procurement.exception.EntityNotFoundException;
 import com.sungroup.procurement.exception.ValidationException;
+import com.sungroup.procurement.repository.MaterialPriceHistoryRepository;
+import com.sungroup.procurement.repository.ProcurementLineItemRepository;
 import com.sungroup.procurement.repository.VendorRepository;
 import com.sungroup.procurement.specification.VendorSpecification;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +19,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -26,6 +29,9 @@ public class VendorService {
 
     private final VendorRepository vendorRepository;
     private final FilterService filterService;
+
+    private final ProcurementLineItemRepository procurementLineItemRepository;
+    private final MaterialPriceHistoryRepository priceHistoryRepository;
 
     // READ Operations
     public ApiResponse<List<Vendor>> findVendorsWithFilters(FilterDataList filterData, Pageable pageable) {
@@ -161,12 +167,33 @@ public class VendorService {
             Vendor vendor = vendorRepository.findByIdActive(id)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.VENDOR_NOT_FOUND));
 
-            // Soft delete
+            List<String> dependencies = new ArrayList<>();
+
+            // Check procurement line items
+            long lineItemCount = procurementLineItemRepository.countByAssignedVendorIdAndProcurementRequestIsDeletedFalse(id);
+            if (lineItemCount > 0) {
+                dependencies.add("Procurement Line Items: " + lineItemCount + " items");
+            }
+
+            // Check price history
+            long priceHistoryCount = priceHistoryRepository.countByVendorId(id);
+            if (priceHistoryCount > 0) {
+                dependencies.add("Price History: " + priceHistoryCount + " records");
+            }
+
+            if (!dependencies.isEmpty()) {
+                String message = "Cannot delete vendor '" + vendor.getName() +
+                        "'. It is being used in: " + String.join("; ", dependencies);
+                return ApiResponse.error(message);
+            }
+
+            // Soft delete if no dependencies
             vendor.setIsDeleted(true);
             vendorRepository.save(vendor);
 
             log.info("Vendor soft deleted successfully: {}", vendor.getName());
-            return ApiResponse.success(ProjectConstants.DATA_DELETED_SUCCESS, "Vendor deleted successfully");
+            return ApiResponse.success(ProjectConstants.DATA_DELETED_SUCCESS,
+                    "Vendor '" + vendor.getName() + "' deleted successfully");
         } catch (EntityNotFoundException e) {
             return ApiResponse.error(e.getMessage());
         } catch (Exception e) {
@@ -224,11 +251,25 @@ public class VendorService {
     }
 
     private void validateVendorForUpdate(Vendor vendorDetails) {
-        // Validate email format if provided
-        if (vendorDetails.getEmail() != null && !vendorDetails.getEmail().trim().isEmpty()) {
-            if (!isValidEmail(vendorDetails.getEmail())) {
-                throw new ValidationException("Invalid email format");
+        // Validate name if provided (name is required field)
+        if (vendorDetails.getName() != null) {
+            if (vendorDetails.getName().trim().isEmpty()) {
+                throw new ValidationException("Vendor name cannot be empty");
             }
+        }
+
+        // Validate email format if provided
+        if (vendorDetails.getEmail() != null) {
+            if (!vendorDetails.getEmail().trim().isEmpty()) {
+                if (!isValidEmail(vendorDetails.getEmail())) {
+                    throw new ValidationException("Invalid email format");
+                }
+            }
+        }
+
+        // Validate contact number if provided
+        if (vendorDetails.getContactNumber() != null && vendorDetails.getContactNumber().trim().isEmpty()) {
+            throw new ValidationException("Contact number cannot be empty");
         }
     }
 

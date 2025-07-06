@@ -27,4 +27,12 @@ public interface MaterialPriceHistoryRepository extends BaseRepository<MaterialP
             "mph.material.id = :materialId " +
             "ORDER BY mph.createdAt DESC")
     List<MaterialPriceHistory> findLatestPricesForMaterial(@Param("materialId") Long materialId);
+
+    // For material dependency checks
+    long countByMaterialId(Long materialId);
+    boolean existsByMaterialId(Long materialId);
+
+    // For vendor dependency checks
+    long countByVendorId(Long vendorId);
+    boolean existsByVendorId(Long vendorId);
 }

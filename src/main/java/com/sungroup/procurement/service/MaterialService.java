@@ -3,21 +3,27 @@ package com.sungroup.procurement.service;
 import com.sungroup.procurement.constants.ProjectConstants;
 import com.sungroup.procurement.dto.request.FilterDataList;
 import com.sungroup.procurement.dto.response.ApiResponse;
+import com.sungroup.procurement.dto.response.MaterialNameDto;
 import com.sungroup.procurement.dto.response.PaginationResponse;
 import com.sungroup.procurement.entity.Material;
 import com.sungroup.procurement.exception.DuplicateEntityException;
 import com.sungroup.procurement.exception.EntityNotFoundException;
 import com.sungroup.procurement.exception.ValidationException;
+import com.sungroup.procurement.repository.MaterialPriceHistoryRepository;
 import com.sungroup.procurement.repository.MaterialRepository;
+import com.sungroup.procurement.repository.ProcurementLineItemRepository;
 import com.sungroup.procurement.specification.MaterialSpecification;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -27,6 +33,9 @@ public class MaterialService {
 
     private final MaterialRepository materialRepository;
     private final FilterService filterService;
+
+    private final ProcurementLineItemRepository procurementLineItemRepository;
+    private final MaterialPriceHistoryRepository priceHistoryRepository;
 
     // READ Operations
     public ApiResponse<List<Material>> findMaterialsWithFilters(FilterDataList filterData, Pageable pageable) {
@@ -165,12 +174,33 @@ public class MaterialService {
             Material material = materialRepository.findByIdActive(id)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.MATERIAL_NOT_FOUND));
 
-            // Soft delete
+            List<String> dependencies = new ArrayList<>();
+
+            // Check procurement line items
+            long lineItemCount = procurementLineItemRepository.countByMaterialIdAndProcurementRequestIsDeletedFalse(id);
+            if (lineItemCount > 0) {
+                dependencies.add("Procurement Line Items: " + lineItemCount + " items");
+            }
+
+            // Check price history
+            long priceHistoryCount = priceHistoryRepository.countByMaterialId(id);
+            if (priceHistoryCount > 0) {
+                dependencies.add("Price History: " + priceHistoryCount + " records");
+            }
+
+            if (!dependencies.isEmpty()) {
+                String message = "Cannot delete material '" + material.getName() +
+                        "'. It is being used in: " + String.join("; ", dependencies);
+                return ApiResponse.error(message);
+            }
+
+            // Soft delete if no dependencies
             material.setIsDeleted(true);
             materialRepository.save(material);
 
             log.info("Material soft deleted successfully: {}", material.getName());
-            return ApiResponse.success(ProjectConstants.DATA_DELETED_SUCCESS, "Material deleted successfully");
+            return ApiResponse.success(ProjectConstants.DATA_DELETED_SUCCESS,
+                    "Material '" + material.getName() + "' deleted successfully");
         } catch (EntityNotFoundException e) {
             return ApiResponse.error(e.getMessage());
         } catch (Exception e) {
@@ -187,7 +217,8 @@ public class MaterialService {
             return spec;
         }
 
-        String name = filterService.getStringValue(filterData, "name");
+        // Get multiple names from filter
+        List<String> names = filterService.getStringValues(filterData, "name");
         String unit = filterService.getStringValue(filterData, "unit");
         List<String> units = filterService.getStringValues(filterData, "units");
         Boolean importFromChina = filterService.getBooleanValue(filterData, "importFromChina");
@@ -197,9 +228,17 @@ public class MaterialService {
 
         FilterService.DateRange createdDateRange = filterService.getDateRange(filterData, "startDate", "endDate");
 
-        if (name != null) {
-            spec = spec.and(MaterialSpecification.hasName(name));
+        // Enhanced name filtering - supports multiple names
+        if (names != null && !names.isEmpty()) {
+            if (names.size() == 1) {
+                // Single name - use contains (partial match)
+                spec = spec.and(MaterialSpecification.hasName(names.get(0)));
+            } else {
+                // Multiple names - use OR logic with partial match
+                spec = spec.and(MaterialSpecification.searchByMultipleNames(names));
+            }
         }
+
         if (unit != null) {
             spec = spec.and(MaterialSpecification.hasUnit(unit));
         }
@@ -238,10 +277,65 @@ public class MaterialService {
     }
 
     private void validateMaterialForUpdate(Material materialDetails, Material existingMaterial) {
-        if (materialDetails.getName() != null && !materialDetails.getName().equals(existingMaterial.getName())) {
-            if (materialRepository.existsByNameAndIsDeletedFalse(materialDetails.getName())) {
-                throw new DuplicateEntityException("Material name already exists");
+        // Validate name if provided (name is required field)
+        if (materialDetails.getName() != null) {
+            if (materialDetails.getName().trim().isEmpty()) {
+                throw new ValidationException("Material name cannot be empty");
             }
+            // Check for duplicates only if name is changing
+            if (!materialDetails.getName().equals(existingMaterial.getName())) {
+                if (materialRepository.existsByNameAndIsDeletedFalse(materialDetails.getName())) {
+                    throw new DuplicateEntityException("Material name already exists");
+                }
+            }
+        }
+
+        // Validate unit if provided (unit can be optional)
+        if (materialDetails.getUnit() != null && materialDetails.getUnit().trim().isEmpty()) {
+            throw new ValidationException("Unit cannot be empty");
+        }
+    }
+
+    public ApiResponse<List<String>> getAllMaterialNames(String search) {
+        try {
+            List<String> materialNames;
+
+            if (search != null && !search.trim().isEmpty()) {
+                // Filtered search
+                materialNames = materialRepository.findMaterialNamesByNameContainingIgnoreCase(search.trim());
+            } else {
+                // All material names
+                materialNames = materialRepository.findAllActiveMaterialNames();
+            }
+
+            // Sort alphabetically
+            materialNames.sort(String.CASE_INSENSITIVE_ORDER);
+
+            return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, materialNames);
+        } catch (Exception e) {
+            log.error("Error fetching material names for typeahead with search: {}", search, e);
+            return ApiResponse.error("Failed to fetch material names");
+        }
+    }
+
+    public ApiResponse<List<MaterialNameDto>> getMaterialNamesWithIds(String search, Integer limit) {
+        try {
+            List<MaterialNameDto> materials;
+
+            Pageable pageable = PageRequest.of(0, limit != null ? limit : 50, Sort.by("name"));
+
+            if (search != null && !search.trim().isEmpty()) {
+                // Filtered search with limit
+                materials = materialRepository.findMaterialNamesWithIdsByNameContaining(search.trim(), pageable);
+            } else {
+                // All materials with limit
+                materials = materialRepository.findAllActiveMaterialNamesWithIds(pageable);
+            }
+
+            return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, materials);
+        } catch (Exception e) {
+            log.error("Error fetching material names with IDs for typeahead", e);
+            return ApiResponse.error("Failed to fetch material names with IDs");
         }
     }
 }

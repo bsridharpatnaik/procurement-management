@@ -5,20 +5,26 @@ import com.sungroup.procurement.dto.request.FilterDataList;
 import com.sungroup.procurement.dto.response.ApiResponse;
 import com.sungroup.procurement.dto.response.PaginationResponse;
 import com.sungroup.procurement.entity.Factory;
+import com.sungroup.procurement.entity.User;
 import com.sungroup.procurement.exception.DuplicateEntityException;
 import com.sungroup.procurement.exception.EntityNotFoundException;
 import com.sungroup.procurement.exception.ValidationException;
 import com.sungroup.procurement.repository.FactoryRepository;
+import com.sungroup.procurement.repository.ProcurementRequestRepository;
+import com.sungroup.procurement.repository.UserRepository;
 import com.sungroup.procurement.specification.FactorySpecification;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -27,6 +33,9 @@ public class FactoryService {
 
     private final FactoryRepository factoryRepository;
     private final FilterService filterService;
+
+    private final UserRepository userRepository;
+    private final ProcurementRequestRepository procurementRequestRepository;
 
     // READ Operations
     public ApiResponse<List<Factory>> findFactoriesWithFilters(FilterDataList filterData, Pageable pageable) {
@@ -134,12 +143,36 @@ public class FactoryService {
             Factory factory = factoryRepository.findByIdActive(id)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.FACTORY_NOT_FOUND));
 
-            // Soft delete
+            List<String> dependencies = new ArrayList<>();
+
+            // Check users
+            List<User> assignedUsers = userRepository.findByAssignedFactoriesIdAndIsDeletedFalse(id);
+            if (!assignedUsers.isEmpty()) {
+                List<String> usernames = assignedUsers.stream()
+                        .map(User::getUsername)
+                        .collect(Collectors.toList());
+                dependencies.add("Users: " + String.join(", ", usernames));
+            }
+
+            // Check procurement requests
+            long requestCount = procurementRequestRepository.countByFactoryIdAndIsDeletedFalse(id);
+            if (requestCount > 0) {
+                dependencies.add("Procurement Requests: " + requestCount + " requests");
+            }
+
+            if (!dependencies.isEmpty()) {
+                String message = "Cannot delete factory '" + factory.getName() +
+                        "'. It is being used in: " + String.join("; ", dependencies);
+                return ApiResponse.error(message);
+            }
+
+            // Soft delete if no dependencies
             factory.setIsDeleted(true);
             factoryRepository.save(factory);
 
             log.info("Factory soft deleted successfully: {}", factory.getName());
-            return ApiResponse.success(ProjectConstants.DATA_DELETED_SUCCESS, "Factory deleted successfully");
+            return ApiResponse.success(ProjectConstants.DATA_DELETED_SUCCESS,
+                    "Factory '" + factory.getName() + "' deleted successfully");
         } catch (EntityNotFoundException e) {
             return ApiResponse.error(e.getMessage());
         } catch (Exception e) {
@@ -147,6 +180,7 @@ public class FactoryService {
             return ApiResponse.error("Failed to delete factory");
         }
     }
+
 
     // UTILITY Methods
     private Specification<Factory> buildFactorySpecification(FilterDataList filterData) {
@@ -200,18 +234,29 @@ public class FactoryService {
     }
 
     private void validateFactoryForUpdate(Factory factoryDetails, Factory existingFactory) {
-        if (factoryDetails.getName() != null && !factoryDetails.getName().equals(existingFactory.getName())) {
+        // Validate required fields
+        if (factoryDetails.getName() == null || factoryDetails.getName().trim().isEmpty()) {
+            throw new ValidationException("Factory name is required");
+        }
+        if (factoryDetails.getFactoryCode() == null || factoryDetails.getFactoryCode().trim().isEmpty()) {
+            throw new ValidationException("Factory code is required");
+        }
+
+        // Validate factory code length
+        if (factoryDetails.getFactoryCode().length() != 2) {
+            throw new ValidationException("Factory code must be exactly 2 characters");
+        }
+
+        // Check for duplicates only if values are changing
+        if (!factoryDetails.getName().equals(existingFactory.getName())) {
             if (factoryRepository.existsByNameAndIsDeletedFalse(factoryDetails.getName())) {
                 throw new DuplicateEntityException("Factory name already exists");
             }
         }
-        if (factoryDetails.getFactoryCode() != null && !factoryDetails.getFactoryCode().equals(existingFactory.getFactoryCode())) {
+        if (!factoryDetails.getFactoryCode().equals(existingFactory.getFactoryCode())) {
             if (factoryRepository.existsByFactoryCodeAndIsDeletedFalse(factoryDetails.getFactoryCode())) {
                 throw new DuplicateEntityException("Factory code already exists");
             }
-        }
-        if (factoryDetails.getFactoryCode() != null && factoryDetails.getFactoryCode().length() != 2) {
-            throw new ValidationException("Factory code must be exactly 2 characters");
         }
     }
 }

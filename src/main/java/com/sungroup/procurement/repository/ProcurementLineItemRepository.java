@@ -22,5 +22,27 @@ public interface ProcurementLineItemRepository extends BaseRepository<Procuremen
     @Query("SELECT pli FROM ProcurementLineItem pli WHERE pli.isDeleted = false AND " +
             "pli.procurementRequest.id = :requestId")
     List<ProcurementLineItem> findByRequestId(@Param("requestId") Long requestId);
+
+    // For material dependency checks
+    @Query("SELECT COUNT(pli) FROM ProcurementLineItem pli " +
+            "WHERE pli.material.id = :materialId " +
+            "AND pli.procurementRequest.isDeleted = false")
+    long countByMaterialIdAndProcurementRequestIsDeletedFalse(@Param("materialId") Long materialId);
+
+    @Query("SELECT COUNT(pli) > 0 FROM ProcurementLineItem pli " +
+            "WHERE pli.material.id = :materialId " +
+            "AND pli.procurementRequest.isDeleted = false")
+    boolean existsByMaterialIdAndProcurementRequestIsDeletedFalse(@Param("materialId") Long materialId);
+
+    // For vendor dependency checks
+    @Query("SELECT COUNT(pli) FROM ProcurementLineItem pli " +
+            "WHERE pli.assignedVendor.id = :vendorId " +
+            "AND pli.procurementRequest.isDeleted = false")
+    long countByAssignedVendorIdAndProcurementRequestIsDeletedFalse(@Param("vendorId") Long vendorId);
+
+    @Query("SELECT COUNT(pli) > 0 FROM ProcurementLineItem pli " +
+            "WHERE pli.assignedVendor.id = :vendorId " +
+            "AND pli.procurementRequest.isDeleted = false")
+    boolean existsByAssignedVendorIdAndProcurementRequestIsDeletedFalse(@Param("vendorId") Long vendorId);
 }
 

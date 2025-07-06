@@ -64,4 +64,8 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
                                     @Param("role") UserRole role,
                                     @Param("isActive") Boolean isActive,
                                     Pageable pageable);
+
+    // For factory dependency check
+    List<User> findByAssignedFactoriesIdAndIsDeletedFalse(Long factoryId);
+    boolean existsByAssignedFactoriesIdAndIsDeletedFalse(Long factoryId);
 }

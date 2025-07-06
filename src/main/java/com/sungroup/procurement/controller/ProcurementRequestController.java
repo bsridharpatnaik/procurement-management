@@ -227,7 +227,7 @@ public class ProcurementRequestController {
             @PathVariable Long id) {
 
         log.info("Deleting procurement request with id: {}", id);
-        ApiResponse<String> response = procurementRequestService.deleteProcurementRequest(id);
+        ApiResponse<String> response = procurementRequestService.deleteProcurementRequestRestricted(id);
 
         if (response.isSuccess()) {
             return ResponseEntity.ok(response);
