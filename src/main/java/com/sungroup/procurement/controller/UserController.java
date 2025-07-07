@@ -40,24 +40,32 @@ public class UserController {
             summary = "Get all users with filtering and pagination",
             description = "Retrieve users with optional filtering. Supports pagination and sorting.",
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "Filter criteria (optional)",
+                    description = "Filter criteria (optional). Available filter keywords: " +
+                            "• username - Filter by username (partial match) " +
+                            "• fullName - Filter by full name (partial match) " +
+                            "• email - Filter by email (partial match) " +
+                            "• role - Filter by user role (ADMIN, FACTORY_USER, PURCHASE_TEAM, MANAGEMENT) " +
+                            "• isActive - Filter by active status (true/false) " +
+                            "• factoryId - Filter by assigned factory ID " +
+                            "• factoryName - Filter by factory name (partial match) " +
+                            "• createdBy - Filter by creator username " +
+                            "• startDate - Filter by creation start date (yyyy-MM-dd HH:mm:ss) " +
+                            "• endDate - Filter by creation end date (yyyy-MM-dd HH:mm:ss)",
                     content = @Content(
                             mediaType = "application/json",
-                            schema = @Schema(implementation = FilterDataList.class)
+                            schema = @Schema(implementation = FilterDataList.class),
+                            examples = @ExampleObject(
+                                    name = "Filter by role and active status",
+                                    value = "{\n" +
+                                            "  \"filterData\": [\n" +
+                                            "    {\"attrName\": \"role\", \"attrValue\": [\"PURCHASE_TEAM\"]},\n" +
+                                            "    {\"attrName\": \"isActive\", \"attrValue\": [\"true\"]}\n" +
+                                            "  ]\n" +
+                                            "}"
+                            )
                     )
             )
     )
-    @ApiResponses(value = {
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "200",
-                    description = "Users retrieved successfully",
-                    content = @Content(schema = @Schema(implementation = ApiResponse.class))
-            ),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "500",
-                    description = "Internal server error"
-            )
-    })
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<List<User>>> getAllUsers(

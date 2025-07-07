@@ -38,10 +38,28 @@ public class MaterialController {
             summary = "Get all materials with filtering and pagination",
             description = "Retrieve materials with optional filtering. Supports pagination and sorting.",
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "Filter criteria (optional)",
+                    description = "Filter criteria (optional). Available filter keywords: " +
+                            "• name - Filter by material name (partial match, supports multiple values) " +
+                            "• unit - Filter by unit (exact match) " +
+                            "• units - Filter by multiple units (exact match) " +
+                            "• importFromChina - Filter by import flag (true/false) " +
+                            "• ids - Filter by material IDs (exact match) " +
+                            "• createdBy - Filter by creator username " +
+                            "• keyword - Search across name and unit fields " +
+                            "• startDate - Filter by creation start date (yyyy-MM-dd HH:mm:ss) " +
+                            "• endDate - Filter by creation end date (yyyy-MM-dd HH:mm:ss)",
                     content = @Content(
                             mediaType = "application/json",
-                            schema = @Schema(implementation = FilterDataList.class)
+                            schema = @Schema(implementation = FilterDataList.class),
+                            examples = @ExampleObject(
+                                    name = "Filter by import flag and units",
+                                    value = "{\n" +
+                                            "  \"filterData\": [\n" +
+                                            "    {\"attrName\": \"importFromChina\", \"attrValue\": [\"true\"]},\n" +
+                                            "    {\"attrName\": \"units\", \"attrValue\": [\"kg\", \"pieces\"]}\n" +
+                                            "  ]\n" +
+                                            "}"
+                            )
                     )
             )
     )

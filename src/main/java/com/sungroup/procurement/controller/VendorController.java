@@ -38,10 +38,26 @@ public class VendorController {
             summary = "Get all vendors with filtering and pagination",
             description = "Retrieve vendors with optional filtering. Supports pagination and sorting.",
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "Filter criteria (optional)",
+                    description = "Filter criteria (optional). Available filter keywords: " +
+                            "• name - Filter by vendor name (partial match, supports multiple values) " +
+                            "• contactNumber - Filter by contact number (partial match) " +
+                            "• email - Filter by email (partial match) " +
+                            "• ids - Filter by vendor IDs (exact match) " +
+                            "• createdBy - Filter by creator username " +
+                            "• keyword - Search across name, email, and contact number " +
+                            "• startDate - Filter by creation start date (yyyy-MM-dd HH:mm:ss) " +
+                            "• endDate - Filter by creation end date (yyyy-MM-dd HH:mm:ss)",
                     content = @Content(
                             mediaType = "application/json",
-                            schema = @Schema(implementation = FilterDataList.class)
+                            schema = @Schema(implementation = FilterDataList.class),
+                            examples = @ExampleObject(
+                                    name = "Search by keyword",
+                                    value = "{\n" +
+                                            "  \"filterData\": [\n" +
+                                            "    {\"attrName\": \"keyword\", \"attrValue\": [\"ABC\"]}\n" +
+                                            "  ]\n" +
+                                            "}"
+                            )
                     )
             )
     )

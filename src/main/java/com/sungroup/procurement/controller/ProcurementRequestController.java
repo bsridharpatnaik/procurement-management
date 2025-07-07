@@ -38,10 +38,37 @@ public class ProcurementRequestController {
             summary = "Get all procurement requests with filtering and pagination",
             description = "Retrieve procurement requests with optional filtering. Supports pagination and sorting.",
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "Filter criteria (optional)",
+                    description = "Filter criteria (optional). Available filter keywords: " +
+                            "• requestNumber - Filter by request number (partial match) " +
+                            "• status - Filter by status (DRAFT, SUBMITTED, IN_PROGRESS, ORDERED, DISPATCHED, RECEIVED, CLOSED) " +
+                            "• priority - Filter by priority (HIGH, MEDIUM, LOW) " +
+                            "• factoryId - Filter by factory ID (exact match) " +
+                            "• factoryName - Filter by factory name (partial match) " +
+                            "• assignedTo - Filter by assigned user ID " +
+                            "• requiresApproval - Filter by approval requirement (true/false) " +
+                            "• approvedBy - Filter by approver user ID " +
+                            "• isShortClosed - Filter by short closed status (true/false) " +
+                            "• createdBy - Filter by creator username " +
+                            "• materialId - Filter by material ID in line items " +
+                            "• materialName - Filter by material name in line items " +
+                            "• vendorId - Filter by vendor ID in line items " +
+                            "• pendingDays - Filter requests older than X days " +
+                            "• startDate - Filter by creation start date (yyyy-MM-dd HH:mm:ss) " +
+                            "• endDate - Filter by creation end date (yyyy-MM-dd HH:mm:ss) " +
+                            "• expectedStartDate - Filter by expected delivery start date (yyyy-MM-dd HH:mm:ss) " +
+                            "• expectedEndDate - Filter by expected delivery end date (yyyy-MM-dd HH:mm:ss)",
                     content = @Content(
                             mediaType = "application/json",
-                            schema = @Schema(implementation = FilterDataList.class)
+                            schema = @Schema(implementation = FilterDataList.class),
+                            examples = @ExampleObject(
+                                    name = "Filter by status and factory",
+                                    value = "{\n" +
+                                            "  \"filterData\": [\n" +
+                                            "    {\"attrName\": \"status\", \"attrValue\": [\"IN_PROGRESS\", \"ORDERED\"]},\n" +
+                                            "    {\"attrName\": \"factoryId\", \"attrValue\": [\"1\"]}\n" +
+                                            "  ]\n" +
+                                            "}"
+                            )
                     )
             )
     )
