@@ -29,6 +29,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.Map;
+import java.util.HashMap;
 
 @Service
 @RequiredArgsConstructor
@@ -483,14 +484,12 @@ public class UserService {
 
     // Check if role change is a downgrade
     private boolean isRoleDowngrade(UserRole currentRole, UserRole newRole) {
-        // Define role hierarchy (higher number = higher privilege)
-        Map<UserRole, Integer> roleHierarchy = Map.of(
-                UserRole.ADMIN, 4,
-                UserRole.MANAGEMENT, 3,
-                UserRole.PURCHASE_TEAM, 2,
-                UserRole.FACTORY_USER, 1
-        );
-
+        // Java 8 compatible way to create role hierarchy map
+        Map<UserRole, Integer> roleHierarchy = new HashMap<>();
+        roleHierarchy.put(UserRole.ADMIN, 4);
+        roleHierarchy.put(UserRole.MANAGEMENT, 3);
+        roleHierarchy.put(UserRole.PURCHASE_TEAM, 2);
+        roleHierarchy.put(UserRole.FACTORY_USER, 1);
         return roleHierarchy.get(newRole) < roleHierarchy.get(currentRole);
     }
 
