@@ -2,6 +2,7 @@ package com.sungroup.procurement.service;
 
 import com.sungroup.procurement.constants.ProjectConstants;
 import com.sungroup.procurement.dto.request.FilterDataList;
+import com.sungroup.procurement.dto.request.PasswordUpdateRequest;
 import com.sungroup.procurement.dto.response.ApiResponse;
 import com.sungroup.procurement.dto.response.PaginationResponse;
 import com.sungroup.procurement.entity.Factory;
@@ -38,6 +39,7 @@ public class UserService {
     private final FilterService filterService;
     private final PasswordEncoder passwordEncoder;
     private final ProcurementRequestRepository procurementRequestRepository;
+
     // READ Operations
     public ApiResponse<List<User>> findUsersWithFilters(FilterDataList filterData, Pageable pageable) {
         try {
@@ -113,6 +115,11 @@ public class UserService {
         try {
             User existingUser = userRepository.findByIdAndIsDeletedFalse(id)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.USER_NOT_FOUND));
+
+            if (userDetails.getUsername() != null &&
+                    !userDetails.getUsername().equals(existingUser.getUsername())) {
+                throw new ValidationException("Username cannot be updated");
+            }
 
             validateUserForUpdate(userDetails, existingUser);
 
@@ -232,6 +239,45 @@ public class UserService {
         if (user.getUsername() == null || user.getUsername().trim().isEmpty()) {
             throw new ValidationException("Username is required");
         }
+
+        // ADD: Trim username before other validations
+        String username = user.getUsername().trim();
+        user.setUsername(username); // Set trimmed username
+
+        // ADD: Check for spaces
+        if (username.contains(" ")) {
+            throw new ValidationException("Username cannot contain spaces");
+        }
+
+        // ADD: Check minimum length
+        if (username.length() < 3) {
+            throw new ValidationException("Username must be at least 3 characters long");
+        }
+
+        // ADD: Check maximum length
+        if (username.length() > 50) {
+            throw new ValidationException("Username cannot exceed 50 characters");
+        }
+
+        // ADD: Check valid characters (only letters, numbers, underscore, dot, hyphen)
+        if (!username.matches("^[a-zA-Z0-9._-]+$")) {
+            throw new ValidationException("Username can only contain letters, numbers, underscore, dot, and hyphen");
+        }
+
+        // ADD: Check it doesn't start/end with special characters
+        if (username.startsWith(".") || username.startsWith("-") || username.startsWith("_") ||
+                username.endsWith(".") || username.endsWith("-") || username.endsWith("_")) {
+            throw new ValidationException("Username cannot start or end with special characters");
+        }
+
+        // Existing duplicate check
+        if (userRepository.existsByUsername(user.getUsername())) {
+            throw new DuplicateEntityException("Username already exists");
+        }
+
+        if (user.getUsername() == null || user.getUsername().trim().isEmpty()) {
+            throw new ValidationException("Username is required");
+        }
         if (user.getPassword() == null || user.getPassword().trim().isEmpty()) {
             throw new ValidationException("Password is required");
         }
@@ -290,5 +336,61 @@ public class UserService {
             validFactories.add(existingFactory);
         }
         return validFactories;
+    }
+
+    @Transactional
+    public ApiResponse<String> updatePassword(Long userId, PasswordUpdateRequest request) {
+        try {
+            User user = userRepository.findByIdAndIsDeletedFalse(userId)
+                    .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.USER_NOT_FOUND));
+
+            validatePasswordUpdate(request, user);
+
+            // Update password
+            user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+            userRepository.save(user);
+
+            log.info("Password updated successfully for user: {}", user.getUsername());
+            return ApiResponse.success("Password updated successfully", "Password has been changed");
+        } catch (EntityNotFoundException | ValidationException e) {
+            return ApiResponse.error(e.getMessage());
+        } catch (Exception e) {
+            log.error("Error updating password for user id: {}", userId, e);
+            return ApiResponse.error("Failed to update password");
+        }
+    }
+
+    private void validatePasswordUpdate(PasswordUpdateRequest request, User user) {
+        // Check if current password matches
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
+            throw new ValidationException("Current password is incorrect");
+        }
+
+        // Check if new password and confirm password match
+        if (!request.getNewPassword().equals(request.getConfirmPassword())) {
+            throw new ValidationException("New password and confirm password do not match");
+        }
+
+        // Check if new password is different from current
+        if (passwordEncoder.matches(request.getNewPassword(), user.getPassword())) {
+            throw new ValidationException("New password must be different from current password");
+        }
+
+        // Additional password strength validation
+        validatePasswordStrength(request.getNewPassword());
+    }
+
+    private void validatePasswordStrength(String password) {
+        if (password == null || password.trim().isEmpty()) {
+            throw new ValidationException("Password cannot be empty");
+        }
+
+        if (password.length() < 6) {
+            throw new ValidationException("Password must be at least 6 characters long");
+        }
+
+        if (password.length() > 100) {
+            throw new ValidationException("Password cannot exceed 100 characters");
+        }
     }
 }
