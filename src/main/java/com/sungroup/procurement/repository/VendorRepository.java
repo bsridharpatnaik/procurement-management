@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -51,4 +52,9 @@ public interface VendorRepository extends BaseRepository<Vendor, Long> {
             "ORDER BY v.name")
     List<VendorNameDto> findVendorNamesWithIdsByNameContaining(@Param("search") String search, Pageable pageable);
 
+    long countByCreatedByAndIsDeletedFalse(String createdBy);
+
+    boolean existsByCreatedByAndIsDeletedFalse(String createdBy);
+
+    long countByUpdatedByAndUpdatedAtAfter(String updatedBy, LocalDateTime afterDate);
 }

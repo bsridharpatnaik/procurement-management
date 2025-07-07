@@ -12,6 +12,7 @@ import com.sungroup.procurement.exception.EntityNotFoundException;
 import com.sungroup.procurement.exception.ValidationException;
 import com.sungroup.procurement.repository.*;
 import com.sungroup.procurement.specification.ProcurementRequestSpecification;
+import com.sungroup.procurement.util.TimeUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -22,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
@@ -223,23 +225,22 @@ public class ProcurementRequestService {
             ProcurementRequest request = procurementRequestRepository.findByIdActive(id)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
 
-            if (!request.getRequiresApproval()) {
-                throw new ValidationException("Request does not require approval");
-            }
-
             User approver = userRepository.findByIdAndIsDeletedFalse(approverId)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.USER_NOT_FOUND));
 
             request.setApprovedBy(approver);
-            request.setApprovedDate(LocalDateTime.now());
+            // Use IST time explicitly
+            request.setApprovedDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
             request.setRequiresApproval(false);
 
             ProcurementRequest approvedRequest = procurementRequestRepository.save(request);
 
-            log.info("Procurement request approved: {} by {}", request.getRequestNumber(), approver.getUsername());
+            log.info("Procurement request approved: {} by {} at {}",
+                    request.getRequestNumber(),
+                    approver.getUsername(),
+                    TimeUtil.formatIST(request.getApprovedDate()));
+
             return ApiResponse.success("Request approved successfully", approvedRequest);
-        } catch (EntityNotFoundException | ValidationException e) {
-            return ApiResponse.error(e.getMessage());
         } catch (Exception e) {
             log.error("Error approving request id: {}", id, e);
             return ApiResponse.error("Failed to approve request");

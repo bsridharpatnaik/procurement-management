@@ -1,5 +1,6 @@
 package com.sungroup.procurement.entity;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import javax.persistence.*;
 
@@ -14,6 +15,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Getter
 @Setter
@@ -24,6 +26,7 @@ public abstract class BaseEntity implements Serializable {
 
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "Asia/Kolkata")
     private LocalDateTime createdAt;
 
     @CreatedBy
@@ -32,6 +35,7 @@ public abstract class BaseEntity implements Serializable {
 
     @LastModifiedDate
     @Column(name = "updated_at")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "Asia/Kolkata")
     private LocalDateTime updatedAt;
 
     @LastModifiedBy
@@ -47,5 +51,15 @@ public abstract class BaseEntity implements Serializable {
         if (isDeleted == null) {
             isDeleted = false;
         }
+        // Ensure timestamps are in IST
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now(ZoneId.of("Asia/Kolkata"));
+        }
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        // Ensure update timestamp is in IST
+        updatedAt = LocalDateTime.now(ZoneId.of("Asia/Kolkata"));
     }
 }
