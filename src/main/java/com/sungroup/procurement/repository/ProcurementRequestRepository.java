@@ -46,4 +46,6 @@ public interface ProcurementRequestRepository extends BaseRepository<Procurement
     // For user dependency checks - assuming approvedBy is User entity
     long countByApprovedByIdAndIsDeletedFalse(Long userId);
     boolean existsByApprovedByIdAndIsDeletedFalse(Long userId);
+
+
 }

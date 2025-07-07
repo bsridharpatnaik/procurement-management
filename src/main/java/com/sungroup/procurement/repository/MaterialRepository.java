@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -61,4 +62,10 @@ public interface MaterialRepository extends BaseRepository<Material, Long> {
 
     boolean existsByNameIgnoreCaseAndIsDeletedFalse(String name);
     Optional<Material> findByNameIgnoreCaseAndIsDeletedFalse(String name);
+
+    long countByCreatedByAndIsDeletedFalse(String createdBy);
+    boolean existsByCreatedByAndIsDeletedFalse(String createdBy);
+
+    // Optional: For recent updates check
+    long countByUpdatedByAndUpdatedAtAfter(String updatedBy, LocalDateTime afterDate);
 }
