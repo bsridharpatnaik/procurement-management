@@ -128,8 +128,7 @@ public class ProcurementRequestService {
                 return ApiResponse.error("Only management users can view requests requiring approval");
             }
 
-            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.isNotDeleted()
-                    .and(ProcurementRequestSpecification.requiresApproval(true));
+            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted();
 
             List<ProcurementRequest> requests = procurementRequestRepository.findAll(spec);
             return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, requests);
