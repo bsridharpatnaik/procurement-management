@@ -17,10 +17,4 @@ public class TimeUtil {
     public static String formatIST(LocalDateTime dateTime) {
         return dateTime.atZone(IST_ZONE).format(IST_FORMATTER);
     }
-
-    public static LocalDateTime convertToIST(LocalDateTime utcDateTime) {
-        return utcDateTime.atZone(ZoneId.of("UTC"))
-                .withZoneSameInstant(IST_ZONE)
-                .toLocalDateTime();
-    }
 }

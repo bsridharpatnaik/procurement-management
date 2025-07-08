@@ -13,6 +13,7 @@ import com.sungroup.procurement.exception.EntityNotFoundException;
 import com.sungroup.procurement.exception.ValidationException;
 import com.sungroup.procurement.repository.*;
 import com.sungroup.procurement.specification.ProcurementRequestSpecification;
+import com.sungroup.procurement.util.ResponseFilterUtil;
 import com.sungroup.procurement.util.SecurityUtil;
 import com.sungroup.procurement.util.TimeUtil;
 import lombok.RequiredArgsConstructor;
@@ -55,9 +56,7 @@ public class ProcurementRequestService {
 
             Page<ProcurementRequest> requestPage = procurementRequestRepository.findAll(spec, pageable);
 
-            // Apply vendor filtering for factory users
-            List<ProcurementRequest> filteredRequests = filterVendorInformationForFactoryUsers(requestPage.getContent());
-
+            List<ProcurementRequest> filteredRequests = ResponseFilterUtil.filterProcurementRequestsForUser(requestPage.getContent());
             PaginationResponse pagination = PaginationResponse.from(requestPage);
             return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, filteredRequests, pagination);
         } catch (Exception e) {
@@ -93,10 +92,7 @@ public class ProcurementRequestService {
 
             // Validate factory access
             validateFactoryAccess(request);
-
-            // Filter vendor information for factory users
-            ProcurementRequest filteredRequest = filterVendorInformationForFactoryUser(request);
-
+            ProcurementRequest filteredRequest = ResponseFilterUtil.filterProcurementRequestForUser(request);
             return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, filteredRequest);
         } catch (EntityNotFoundException | SecurityException e) {
             return ApiResponse.error(e.getMessage());
@@ -593,15 +589,6 @@ public class ProcurementRequestService {
         }
     }
 
-    private List<ProcurementRequest> filterVendorInformationForFactoryUsers(List<ProcurementRequest> requests) {
-        if (SecurityUtil.isCurrentUserFactoryUser()) {
-            return requests.stream()
-                    .map(this::filterVendorInformationForFactoryUser)
-                    .collect(Collectors.toList()); // Collectors import needed
-        }
-        return requests;
-    }
-
     private ProcurementRequest filterVendorInformationForFactoryUser(ProcurementRequest request) {
         if (SecurityUtil.isCurrentUserFactoryUser()) {
             // Remove vendor information from line items
@@ -1004,8 +991,7 @@ public class ProcurementRequestService {
         }
 
         // Get requests for assigned factories only
-        Specification<ProcurementRequest> spec = ProcurementRequestSpecification.isNotDeleted()
-                .and(ProcurementRequestSpecification.accessibleByFactories(accessibleFactoryIds));
+        Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted();
 
         List<ProcurementRequest> allRequests = procurementRequestRepository.findAll(spec);
 
@@ -1022,7 +1008,7 @@ public class ProcurementRequestService {
     private Map<String, Object> getPurchaseTeamDashboard() {
         Map<String, Object> summary = new HashMap<>();
 
-        Specification<ProcurementRequest> spec = ProcurementRequestSpecification.isNotDeleted();
+        Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted();
         List<ProcurementRequest> allRequests = procurementRequestRepository.findAll(spec);
 
         summary.put("totalRequests", allRequests.size());
@@ -1038,7 +1024,7 @@ public class ProcurementRequestService {
     private Map<String, Object> getManagementDashboard() {
         Map<String, Object> summary = getPurchaseTeamDashboard();
 
-        Specification<ProcurementRequest> spec = ProcurementRequestSpecification.isNotDeleted();
+        Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted();
         List<ProcurementRequest> allRequests = procurementRequestRepository.findAll(spec);
 
         summary.put("requestsRequiringApproval", countRequiringApproval(allRequests));
@@ -1050,7 +1036,7 @@ public class ProcurementRequestService {
     private Map<String, Object> getAdminDashboard() {
         Map<String, Object> summary = new HashMap<>();
 
-        Specification<ProcurementRequest> spec = ProcurementRequestSpecification.isNotDeleted();
+        Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted();
         List<ProcurementRequest> allRequests = procurementRequestRepository.findAll(spec);
 
         summary.put("totalRequests", allRequests.size());

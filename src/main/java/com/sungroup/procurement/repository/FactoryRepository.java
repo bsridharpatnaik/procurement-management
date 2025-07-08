@@ -17,21 +17,13 @@ import java.util.Optional;
 @Repository
 public interface FactoryRepository extends BaseRepository<Factory, Long> {
 
-    Optional<Factory> findByNameAndIsDeletedFalse(String name);
-
     Optional<Factory> findByFactoryCodeAndIsDeletedFalse(String factoryCode);
 
     Optional<Factory> findByIdAndIsDeletedFalse(Long id);
 
-    List<Factory> findByIsActiveAndIsDeletedFalse(Boolean isActive);
-
     boolean existsByNameAndIsDeletedFalse(String name);
 
     boolean existsByFactoryCodeAndIsDeletedFalse(String factoryCode);
-
-    @Query("SELECT f FROM Factory f WHERE f.isDeleted = false AND f.isActive = true AND " +
-            "(:name IS NULL OR LOWER(f.name) LIKE LOWER(CONCAT('%', :name, '%')))")
-    List<Factory> findActiveFactoriesByName(@Param("name") String name);
 
     long countByIsDeletedFalse();
 }

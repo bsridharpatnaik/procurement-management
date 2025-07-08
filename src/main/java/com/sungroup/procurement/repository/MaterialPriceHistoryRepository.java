@@ -11,28 +11,11 @@ import java.util.Optional;
 @Repository
 public interface MaterialPriceHistoryRepository extends BaseRepository<MaterialPriceHistory, Long> {
 
-    List<MaterialPriceHistory> findByMaterialIdAndIsDeletedFalse(Long materialId);
-
     Optional<MaterialPriceHistory> findByIdAndIsDeletedFalse(Long id);
-
-    List<MaterialPriceHistory> findByVendorIdAndIsDeletedFalse(Long vendorId);
-
-    @Query("SELECT mph FROM MaterialPriceHistory mph WHERE mph.isDeleted = false AND " +
-            "mph.material.id = :materialId AND mph.vendor.id = :vendorId " +
-            "ORDER BY mph.createdAt DESC")
-    List<MaterialPriceHistory> findByMaterialAndVendor(@Param("materialId") Long materialId,
-                                                       @Param("vendorId") Long vendorId);
-
-    @Query("SELECT mph FROM MaterialPriceHistory mph WHERE mph.isDeleted = false AND " +
-            "mph.material.id = :materialId " +
-            "ORDER BY mph.createdAt DESC")
-    List<MaterialPriceHistory> findLatestPricesForMaterial(@Param("materialId") Long materialId);
 
     // For material dependency checks
     long countByMaterialId(Long materialId);
-    boolean existsByMaterialId(Long materialId);
 
     // For vendor dependency checks
     long countByVendorId(Long vendorId);
-    boolean existsByVendorId(Long vendorId);
 }

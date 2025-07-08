@@ -215,6 +215,10 @@ public class ProcurementLineItemService {
             lineItem.setActualQuantity(actualQuantity);
             lineItem.setStatus(LineItemStatus.RECEIVED);
 
+            // Initialize return tracking
+            lineItem.setHasReturns(false);
+            lineItem.setTotalReturnedQuantity(BigDecimal.ZERO);
+
             ProcurementLineItem savedLineItem = lineItemRepository.save(lineItem);
 
             // Update parent request status

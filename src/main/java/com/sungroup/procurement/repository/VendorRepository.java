@@ -14,24 +14,9 @@ import java.util.Optional;
 @Repository
 public interface VendorRepository extends BaseRepository<Vendor, Long> {
 
-    List<Vendor> findByNameContainingIgnoreCaseAndIsDeletedFalse(String name);
-
-    Optional<Vendor> findByEmailAndIsDeletedFalse(String email);
-
     Optional<Vendor> findByIdAndIsDeletedFalse(Long id);
 
-    List<Vendor> findByContactNumberAndIsDeletedFalse(String contactNumber);
-
-    @Query("SELECT v FROM Vendor v WHERE v.isDeleted = false AND " +
-            "(:keyword IS NULL OR " +
-            "LOWER(v.name) LIKE LOWER(CONCAT('%', :keyword, '%')) OR " +
-            "LOWER(v.email) LIKE LOWER(CONCAT('%', :keyword, '%')) OR " +
-            "v.contactNumber LIKE CONCAT('%', :keyword, '%'))")
-    List<Vendor> searchVendors(@Param("keyword") String keyword);
-
     boolean existsByNameIgnoreCaseAndIsDeletedFalse(String name);
-
-    Optional<Vendor> findByNameIgnoreCaseAndIsDeletedFalse(String name);
 
     // ADD typeahead methods
     @Query("SELECT v.name FROM Vendor v WHERE v.isDeleted = false ORDER BY v.name")
@@ -53,10 +38,6 @@ public interface VendorRepository extends BaseRepository<Vendor, Long> {
     List<VendorNameDto> findVendorNamesWithIdsByNameContaining(@Param("search") String search, Pageable pageable);
 
     long countByCreatedByAndIsDeletedFalse(String createdBy);
-
-    boolean existsByCreatedByAndIsDeletedFalse(String createdBy);
-
-    long countByUpdatedByAndUpdatedAtAfter(String updatedBy, LocalDateTime afterDate);
 
     long countByIsDeletedFalse();
 }

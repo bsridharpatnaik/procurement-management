@@ -19,36 +19,17 @@ public interface ProcurementRequestRepository extends BaseRepository<Procurement
 
     Optional<ProcurementRequest> findByIdAndIsDeletedFalse(Long id);
 
-    boolean existsByRequestNumberAndIsDeletedFalse(String requestNumber);
-
     List<ProcurementRequest> findByFactoryIdAndIsDeletedFalse(Long factoryId);
-
-    List<ProcurementRequest> findByAssignedToIdAndIsDeletedFalse(Long userId);
-
-    List<ProcurementRequest> findByRequiresApprovalAndIsDeletedFalse(Boolean requiresApproval);
-
-    @Query("SELECT pr FROM ProcurementRequest pr WHERE pr.isDeleted = false AND pr.assignedTo IS NULL")
-    List<ProcurementRequest> findUnassignedRequests();
-
-    @Query("SELECT pr FROM ProcurementRequest pr WHERE pr.isDeleted = false AND " +
-            "pr.factory.id IN :factoryIds")
-    List<ProcurementRequest> findByFactoryIds(@Param("factoryIds") List<Long> factoryIds);
 
     // For factory dependency checks
     long countByFactoryIdAndIsDeletedFalse(Long factoryId);
-    boolean existsByFactoryIdAndIsDeletedFalse(Long factoryId);
 
     // For user dependency checks - assuming createdBy is String (username)
     long countByCreatedByAndIsDeletedFalse(String createdBy);
-    boolean existsByCreatedByAndIsDeletedFalse(String createdBy);
 
     // For user dependency checks - assuming assignedTo is User entity
     long countByAssignedToIdAndIsDeletedFalse(Long userId);
-    boolean existsByAssignedToIdAndIsDeletedFalse(Long userId);
 
     // For user dependency checks - assuming approvedBy is User entity
     long countByApprovedByIdAndIsDeletedFalse(Long userId);
-    boolean existsByApprovedByIdAndIsDeletedFalse(Long userId);
-
-
 }

@@ -18,20 +18,6 @@ public interface MaterialRepository extends BaseRepository<Material, Long> {
 
     Optional<Material> findByIdAndIsDeletedFalse(Long id);
 
-    List<Material> findByImportFromChinaAndIsDeletedFalse(Boolean importFromChina);
-
-    List<Material> findByUnitAndIsDeletedFalse(String unit);
-
-    boolean existsByNameAndIsDeletedFalse(String name);
-
-    @Query("SELECT m FROM Material m WHERE m.isDeleted = false AND " +
-            "(:name IS NULL OR LOWER(m.name) LIKE LOWER(CONCAT('%', :name, '%'))) AND " +
-            "(:unit IS NULL OR LOWER(m.unit) LIKE LOWER(CONCAT('%', :unit, '%'))) AND " +
-            "(:importFromChina IS NULL OR m.importFromChina = :importFromChina)")
-    List<Material> findMaterialsWithFilters(@Param("name") String name,
-                                            @Param("unit") String unit,
-                                            @Param("importFromChina") Boolean importFromChina);
-
     @Query("SELECT DISTINCT m.unit FROM Material m WHERE m.isDeleted = false AND m.unit IS NOT NULL ORDER BY m.unit")
     List<String> findAllDistinctUnits();
 
@@ -57,17 +43,9 @@ public interface MaterialRepository extends BaseRepository<Material, Long> {
             "ORDER BY m.name")
     List<MaterialNameDto> findMaterialNamesWithIdsByNameContaining(@Param("search") String search, Pageable pageable);
 
-    // Alternative: Simple method using Spring Data naming convention
-    List<Material> findByNameContainingIgnoreCaseAndIsDeletedFalseOrderByName(String name);
-
     boolean existsByNameIgnoreCaseAndIsDeletedFalse(String name);
-    Optional<Material> findByNameIgnoreCaseAndIsDeletedFalse(String name);
 
     long countByCreatedByAndIsDeletedFalse(String createdBy);
-    boolean existsByCreatedByAndIsDeletedFalse(String createdBy);
-
-    // Optional: For recent updates check
-    long countByUpdatedByAndUpdatedAtAfter(String updatedBy, LocalDateTime afterDate);
 
     long countByIsDeletedFalse();
 
