@@ -12,6 +12,9 @@ import com.sungroup.procurement.exception.EntityNotFoundException;
 import com.sungroup.procurement.exception.ValidationException;
 import com.sungroup.procurement.repository.*;
 import com.sungroup.procurement.specification.ProcurementRequestSpecification;
+import com.sungroup.procurement.util.PermissionValidator;
+import com.sungroup.procurement.util.ResponseFilterUtil;
+import com.sungroup.procurement.util.SecurityUtil;
 import com.sungroup.procurement.util.TimeUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,11 +24,13 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -40,15 +45,25 @@ public class ProcurementRequestService {
     private final ProcurementLineItemRepository lineItemRepository;
     private final MaterialPriceHistoryRepository priceHistoryRepository;
     private final FilterService filterService;
+    private final ReturnRequestService returnRequestService;
 
-    // READ Operations
+    // READ Operations with Enhanced Access Control and Filtering
     public ApiResponse<List<ProcurementRequest>> findRequestsWithFilters(FilterDataList filterData, Pageable pageable) {
         try {
-            Specification<ProcurementRequest> spec = buildProcurementRequestSpecification(filterData);
+            // CRITICAL: Always start with security and not deleted specification
+            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted();
+
+            // Add additional filters
+            spec = spec.and(buildAdditionalFilters(filterData));
+
             Page<ProcurementRequest> requestPage = procurementRequestRepository.findAll(spec, pageable);
+
+            // Apply vendor information filtering based on user role
+            List<ProcurementRequest> filteredContent = ResponseFilterUtil.filterProcurementRequestsForUser(requestPage.getContent());
+
             PaginationResponse pagination = PaginationResponse.from(requestPage);
 
-            return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, requestPage.getContent(), pagination);
+            return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, filteredContent, pagination);
         } catch (Exception e) {
             log.error("Error fetching procurement requests with filters", e);
             return ApiResponse.error("Failed to fetch procurement requests: " + e.getMessage());
@@ -57,10 +72,17 @@ public class ProcurementRequestService {
 
     public ApiResponse<ProcurementRequest> findById(Long id) {
         try {
-            ProcurementRequest request = procurementRequestRepository.findByIdActive(id)
+            // Use security specification for access control
+            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted()
+                    .and((root, query, cb) -> cb.equal(root.get("id"), id));
+
+            ProcurementRequest request = procurementRequestRepository.findOne(spec)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
 
-            return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, request);
+            // Apply vendor information filtering
+            ProcurementRequest filteredRequest = ResponseFilterUtil.filterProcurementRequestForUser(request);
+
+            return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, filteredRequest);
         } catch (EntityNotFoundException e) {
             return ApiResponse.error(e.getMessage());
         } catch (Exception e) {
@@ -71,10 +93,17 @@ public class ProcurementRequestService {
 
     public ApiResponse<ProcurementRequest> findByRequestNumber(String requestNumber) {
         try {
-            ProcurementRequest request = procurementRequestRepository.findByRequestNumberAndIsDeletedFalse(requestNumber)
+            // Use security specification for access control
+            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted()
+                    .and(ProcurementRequestSpecification.hasRequestNumber(requestNumber));
+
+            ProcurementRequest request = procurementRequestRepository.findOne(spec)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
 
-            return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, request);
+            // Apply vendor information filtering
+            ProcurementRequest filteredRequest = ResponseFilterUtil.filterProcurementRequestForUser(request);
+
+            return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, filteredRequest);
         } catch (EntityNotFoundException e) {
             return ApiResponse.error(e.getMessage());
         } catch (Exception e) {
@@ -85,11 +114,13 @@ public class ProcurementRequestService {
 
     public ApiResponse<List<ProcurementRequest>> findUnassignedRequests() {
         try {
-            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.isNotDeleted()
+            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted()
                     .and(ProcurementRequestSpecification.isUnassigned());
 
             List<ProcurementRequest> requests = procurementRequestRepository.findAll(spec);
-            return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, requests);
+            List<ProcurementRequest> filteredRequests = ResponseFilterUtil.filterProcurementRequestsForUser(requests);
+
+            return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, filteredRequests);
         } catch (Exception e) {
             log.error("Error fetching unassigned requests", e);
             return ApiResponse.error("Failed to fetch unassigned requests");
@@ -98,22 +129,27 @@ public class ProcurementRequestService {
 
     public ApiResponse<List<ProcurementRequest>> findRequestsRequiringApproval() {
         try {
-            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.isNotDeleted()
+            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted()
                     .and(ProcurementRequestSpecification.requiresApproval(true));
 
             List<ProcurementRequest> requests = procurementRequestRepository.findAll(spec);
-            return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, requests);
+            List<ProcurementRequest> filteredRequests = ResponseFilterUtil.filterProcurementRequestsForUser(requests);
+
+            return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, filteredRequests);
         } catch (Exception e) {
             log.error("Error fetching requests requiring approval", e);
             return ApiResponse.error("Failed to fetch requests requiring approval");
         }
     }
 
-    // CREATE Operations
+    // CREATE Operations with Enhanced Validation
     @Transactional
     public ApiResponse<ProcurementRequest> createProcurementRequest(ProcurementRequest request) {
         try {
             validateProcurementRequestForCreate(request);
+
+            // Validate factory access for current user
+            SecurityUtil.validateFactoryAccess(request.getFactory().getId(), "create procurement request");
 
             // Generate request number
             String requestNumber = generateRequestNumber(request.getFactory());
@@ -127,11 +163,17 @@ public class ProcurementRequestService {
             // Validate line items
             validateLineItems(request.getLineItems());
 
+            // Validate for duplicates (both within request and across requests)
+            validateNoDuplicates(request);
+
             ProcurementRequest savedRequest = procurementRequestRepository.save(request);
             log.info("Procurement request created successfully: {}", savedRequest.getRequestNumber());
 
-            return ApiResponse.success(ProjectConstants.DATA_CREATED_SUCCESS, savedRequest);
-        } catch (EntityNotFoundException | ValidationException e) {
+            // Apply vendor information filtering before returning
+            ProcurementRequest filteredRequest = ResponseFilterUtil.filterProcurementRequestForUser(savedRequest);
+
+            return ApiResponse.success(ProjectConstants.DATA_CREATED_SUCCESS, filteredRequest);
+        } catch (EntityNotFoundException | ValidationException | SecurityException e) {
             return ApiResponse.error(e.getMessage());
         } catch (Exception e) {
             log.error("Error creating procurement request", e);
@@ -139,32 +181,31 @@ public class ProcurementRequestService {
         }
     }
 
-    // UPDATE Operations
+    // UPDATE Operations with Enhanced Permission Validation
     @Transactional
     public ApiResponse<ProcurementRequest> updateProcurementRequest(Long id, ProcurementRequest requestDetails) {
         try {
-            ProcurementRequest existingRequest = procurementRequestRepository.findByIdActive(id)
+            // Find with security filter
+            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted()
+                    .and((root, query, cb) -> cb.equal(root.get("id"), id));
+
+            ProcurementRequest existingRequest = procurementRequestRepository.findOne(spec)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
 
-            validateProcurementRequestForUpdate(requestDetails, existingRequest);
+            // Enhanced permission validation
+            PermissionValidator.validateCanEditProcurementRequest(existingRequest);
 
-            // Update basic fields
-            existingRequest.setPriority(requestDetails.getPriority());
-            existingRequest.setExpectedDeliveryDate(requestDetails.getExpectedDeliveryDate());
-            existingRequest.setJustification(requestDetails.getJustification());
-
-            // Update assigned user if provided
-            if (requestDetails.getAssignedTo() != null) {
-                User assignedUser = userRepository.findByIdAndIsDeletedFalse(requestDetails.getAssignedTo().getId())
-                        .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.USER_NOT_FOUND));
-                existingRequest.setAssignedTo(assignedUser);
-            }
+            // Update allowed fields based on status and user role
+            updateAllowedFieldsWithValidation(existingRequest, requestDetails);
 
             ProcurementRequest updatedRequest = procurementRequestRepository.save(existingRequest);
             log.info("Procurement request updated successfully: {}", updatedRequest.getRequestNumber());
 
-            return ApiResponse.success(ProjectConstants.DATA_UPDATED_SUCCESS, updatedRequest);
-        } catch (EntityNotFoundException | ValidationException e) {
+            // Apply vendor information filtering before returning
+            ProcurementRequest filteredRequest = ResponseFilterUtil.filterProcurementRequestForUser(updatedRequest);
+
+            return ApiResponse.success(ProjectConstants.DATA_UPDATED_SUCCESS, filteredRequest);
+        } catch (EntityNotFoundException | ValidationException | SecurityException e) {
             return ApiResponse.error(e.getMessage());
         } catch (Exception e) {
             log.error("Error updating procurement request with id: {}", id, e);
@@ -175,17 +216,33 @@ public class ProcurementRequestService {
     @Transactional
     public ApiResponse<ProcurementRequest> updateStatus(Long id, ProcurementStatus newStatus) {
         try {
-            ProcurementRequest request = procurementRequestRepository.findByIdActive(id)
+            // Find with security filter
+            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted()
+                    .and((root, query, cb) -> cb.equal(root.get("id"), id));
+
+            ProcurementRequest request = procurementRequestRepository.findOne(spec)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
 
-            validateStatusTransition(request.getStatus(), newStatus);
+            // Enhanced status change validation
+            PermissionValidator.validateStatusTransition(request, newStatus);
+
+            // Special validation for closing requests with returns
+            if (newStatus == ProcurementStatus.CLOSED) {
+                if (!returnRequestService.canCloseProcurementRequest(id)) {
+                    throw new ValidationException("Cannot close request with pending return requests");
+                }
+            }
 
             request.setStatus(newStatus);
             ProcurementRequest updatedRequest = procurementRequestRepository.save(request);
 
             log.info("Procurement request status updated: {} -> {}", request.getRequestNumber(), newStatus);
-            return ApiResponse.success("Status updated successfully", updatedRequest);
-        } catch (EntityNotFoundException | ValidationException e) {
+
+            // Apply vendor information filtering before returning
+            ProcurementRequest filteredRequest = ResponseFilterUtil.filterProcurementRequestForUser(updatedRequest);
+
+            return ApiResponse.success("Status updated successfully", filteredRequest);
+        } catch (EntityNotFoundException | ValidationException | SecurityException e) {
             return ApiResponse.error(e.getMessage());
         } catch (Exception e) {
             log.error("Error updating status for request id: {}", id, e);
@@ -196,11 +253,18 @@ public class ProcurementRequestService {
     @Transactional
     public ApiResponse<ProcurementRequest> assignToUser(Long id, Long userId) {
         try {
-            ProcurementRequest request = procurementRequestRepository.findByIdActive(id)
+            // Find with security filter
+            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted()
+                    .and((root, query, cb) -> cb.equal(root.get("id"), id));
+
+            ProcurementRequest request = procurementRequestRepository.findOne(spec)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
 
             User user = userRepository.findByIdAndIsDeletedFalse(userId)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.USER_NOT_FOUND));
+
+            // Enhanced assignment validation
+            PermissionValidator.validateAssignmentPermission(user);
 
             request.setAssignedTo(user);
             if (request.getStatus() == ProcurementStatus.SUBMITTED) {
@@ -210,8 +274,12 @@ public class ProcurementRequestService {
             ProcurementRequest updatedRequest = procurementRequestRepository.save(request);
 
             log.info("Procurement request assigned: {} -> {}", request.getRequestNumber(), user.getUsername());
-            return ApiResponse.success("Request assigned successfully", updatedRequest);
-        } catch (EntityNotFoundException e) {
+
+            // Apply vendor information filtering before returning
+            ProcurementRequest filteredRequest = ResponseFilterUtil.filterProcurementRequestForUser(updatedRequest);
+
+            return ApiResponse.success("Request assigned successfully", filteredRequest);
+        } catch (EntityNotFoundException | ValidationException | SecurityException e) {
             return ApiResponse.error(e.getMessage());
         } catch (Exception e) {
             log.error("Error assigning request id: {} to user id: {}", id, userId, e);
@@ -220,16 +288,53 @@ public class ProcurementRequestService {
     }
 
     @Transactional
+    public ApiResponse<ProcurementRequest> setApprovalFlag(Long id, boolean requiresApproval) {
+        try {
+            // Find with security filter
+            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted()
+                    .and((root, query, cb) -> cb.equal(root.get("id"), id));
+
+            ProcurementRequest request = procurementRequestRepository.findOne(spec)
+                    .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
+
+            // Enhanced approval flag validation
+            PermissionValidator.validateApprovalFlagPermission(request, requiresApproval);
+
+            request.setRequiresApproval(requiresApproval);
+            ProcurementRequest updatedRequest = procurementRequestRepository.save(request);
+
+            log.info("Approval flag set for request: {} to: {}", request.getRequestNumber(), requiresApproval);
+
+            // Apply vendor information filtering before returning
+            ProcurementRequest filteredRequest = ResponseFilterUtil.filterProcurementRequestForUser(updatedRequest);
+
+            String message = requiresApproval ? "Request marked for approval" : "Approval requirement removed";
+            return ApiResponse.success(message, filteredRequest);
+        } catch (EntityNotFoundException | ValidationException | SecurityException e) {
+            return ApiResponse.error(e.getMessage());
+        } catch (Exception e) {
+            log.error("Error setting approval flag for request id: {}", id, e);
+            return ApiResponse.error("Failed to set approval flag");
+        }
+    }
+
+    @Transactional
     public ApiResponse<ProcurementRequest> approveRequest(Long id, Long approverId) {
         try {
-            ProcurementRequest request = procurementRequestRepository.findByIdActive(id)
+            // Find with security filter
+            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted()
+                    .and((root, query, cb) -> cb.equal(root.get("id"), id));
+
+            ProcurementRequest request = procurementRequestRepository.findOne(spec)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
+
+            // Enhanced approval validation
+            PermissionValidator.validateApprovalPermission(request);
 
             User approver = userRepository.findByIdAndIsDeletedFalse(approverId)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.USER_NOT_FOUND));
 
             request.setApprovedBy(approver);
-            // Use IST time explicitly
             request.setApprovedDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
             request.setRequiresApproval(false);
 
@@ -240,24 +345,31 @@ public class ProcurementRequestService {
                     approver.getUsername(),
                     TimeUtil.formatIST(request.getApprovedDate()));
 
-            return ApiResponse.success("Request approved successfully", approvedRequest);
+            // Apply vendor information filtering before returning
+            ProcurementRequest filteredRequest = ResponseFilterUtil.filterProcurementRequestForUser(approvedRequest);
+
+            return ApiResponse.success("Request approved successfully", filteredRequest);
+        } catch (EntityNotFoundException | ValidationException | SecurityException e) {
+            return ApiResponse.error(e.getMessage());
         } catch (Exception e) {
             log.error("Error approving request id: {}", id, e);
             return ApiResponse.error("Failed to approve request");
         }
     }
 
-    // DELETE Operations
+    // DELETE Operations with Enhanced Validation
     @Transactional
     public ApiResponse<String> deleteProcurementRequestRestricted(Long id) {
         try {
-            ProcurementRequest request = procurementRequestRepository.findByIdActive(id)
+            // Find with security filter
+            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted()
+                    .and((root, query, cb) -> cb.equal(root.get("id"), id));
+
+            ProcurementRequest request = procurementRequestRepository.findOne(spec)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
 
-            // Only allow deletion of DRAFT requests that have no line items or only draft line items
-            if (request.getStatus() != ProcurementStatus.DRAFT) {
-                return ApiResponse.error("Only draft procurement requests can be deleted.");
-            }
+            // Enhanced deletion validation
+            PermissionValidator.validateDeletionPermission(request);
 
             // Check if any line items have been processed (have vendor assignments, prices, etc.)
             boolean hasProcessedLineItems = request.getLineItems().stream()
@@ -275,7 +387,7 @@ public class ProcurementRequestService {
 
             log.info("Procurement request soft deleted: {}", request.getRequestNumber());
             return ApiResponse.success(ProjectConstants.DATA_DELETED_SUCCESS, "Procurement request deleted successfully");
-        } catch (EntityNotFoundException e) {
+        } catch (EntityNotFoundException | ValidationException | SecurityException e) {
             return ApiResponse.error(e.getMessage());
         } catch (Exception e) {
             log.error("Error deleting procurement request with id: {}", id, e);
@@ -283,9 +395,41 @@ public class ProcurementRequestService {
         }
     }
 
-    // UTILITY Methods
-    private Specification<ProcurementRequest> buildProcurementRequestSpecification(FilterDataList filterData) {
-        Specification<ProcurementRequest> spec = ProcurementRequestSpecification.isNotDeleted();
+    // UTILITY Methods with Enhanced Validation
+    private void updateAllowedFieldsWithValidation(ProcurementRequest existingRequest, ProcurementRequest requestDetails) {
+        // Validate each field that's being updated
+        if (requestDetails.getJustification() != null) {
+            PermissionValidator.validateFieldEditPermission(existingRequest, "justification", requestDetails.getJustification());
+            existingRequest.setJustification(requestDetails.getJustification());
+        }
+
+        if (requestDetails.getPriority() != null) {
+            PermissionValidator.validateFieldEditPermission(existingRequest, "priority", requestDetails.getPriority());
+            existingRequest.setPriority(requestDetails.getPriority());
+        }
+
+        if (requestDetails.getExpectedDeliveryDate() != null) {
+            PermissionValidator.validateFieldEditPermission(existingRequest, "expectedDeliveryDate", requestDetails.getExpectedDeliveryDate());
+            existingRequest.setExpectedDeliveryDate(requestDetails.getExpectedDeliveryDate());
+        }
+
+        if (requestDetails.getAssignedTo() != null) {
+            PermissionValidator.validateFieldEditPermission(existingRequest, "assignedTo", requestDetails.getAssignedTo());
+            User assignedUser = userRepository.findByIdAndIsDeletedFalse(requestDetails.getAssignedTo().getId())
+                    .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.USER_NOT_FOUND));
+            PermissionValidator.validateAssignmentPermission(assignedUser);
+            existingRequest.setAssignedTo(assignedUser);
+        }
+
+        if (requestDetails.getRequiresApproval() != null) {
+            PermissionValidator.validateFieldEditPermission(existingRequest, "requiresApproval", requestDetails.getRequiresApproval());
+            PermissionValidator.validateApprovalFlagPermission(existingRequest, requestDetails.getRequiresApproval());
+            existingRequest.setRequiresApproval(requestDetails.getRequiresApproval());
+        }
+    }
+
+    private Specification<ProcurementRequest> buildAdditionalFilters(FilterDataList filterData) {
+        Specification<ProcurementRequest> spec = Specification.where(null);
 
         if (filterData == null || filterData.getFilterData() == null) {
             return spec;
@@ -312,7 +456,20 @@ public class ProcurementRequestService {
         if (requestNumber != null) spec = spec.and(ProcurementRequestSpecification.hasRequestNumber(requestNumber));
         if (statuses != null && !statuses.isEmpty()) spec = spec.and(ProcurementRequestSpecification.hasStatuses(statuses));
         if (priorities != null && !priorities.isEmpty()) spec = spec.and(ProcurementRequestSpecification.hasPriorities(priorities));
-        if (factoryIds != null && !factoryIds.isEmpty()) spec = spec.and(ProcurementRequestSpecification.hasFactoryIds(factoryIds));
+
+        // Factory filtering: Validate access for explicit factory filters
+        if (factoryIds != null && !factoryIds.isEmpty()) {
+            // Validate user has access to requested factories
+            for (Long factoryId : factoryIds) {
+                if (!SecurityUtil.hasAccessToFactory(factoryId)) {
+                    log.warn("User {} attempted to filter by inaccessible factory ID: {}",
+                            SecurityUtil.getCurrentUsername(), factoryId);
+                    continue;
+                }
+            }
+            spec = spec.and(ProcurementRequestSpecification.hasFactoryIds(factoryIds));
+        }
+
         if (factoryName != null) spec = spec.and(ProcurementRequestSpecification.hasFactoryName(factoryName));
         if (assignedToIds != null && !assignedToIds.isEmpty()) spec = spec.and(ProcurementRequestSpecification.isAssignedToUsers(assignedToIds));
         if (requiresApproval != null) spec = spec.and(ProcurementRequestSpecification.requiresApproval(requiresApproval));
@@ -321,7 +478,12 @@ public class ProcurementRequestService {
         if (createdBy != null) spec = spec.and(ProcurementRequestSpecification.createdBy(createdBy));
         if (materialId != null) spec = spec.and(ProcurementRequestSpecification.hasMaterialId(materialId));
         if (materialName != null) spec = spec.and(ProcurementRequestSpecification.hasMaterialName(materialName));
-        if (vendorId != null) spec = spec.and(ProcurementRequestSpecification.hasVendorId(vendorId));
+
+        // Vendor filtering: Only allow for users who can see vendor information
+        if (vendorId != null && SecurityUtil.canSeeVendorInformation()) {
+            spec = spec.and(ProcurementRequestSpecification.hasVendorId(vendorId));
+        }
+
         if (pendingDays != null) spec = spec.and(ProcurementRequestSpecification.pendingForDays(pendingDays));
 
         if (createdDateRange != null) {
@@ -340,14 +502,69 @@ public class ProcurementRequestService {
         return spec;
     }
 
+    /**
+     * Enhanced duplicate validation - both within request and across requests
+     */
+    private void validateNoDuplicates(ProcurementRequest request) {
+        // 1. Check for duplicate materials within the same request
+        long distinctMaterials = request.getLineItems().stream()
+                .map(item -> item.getMaterial().getId())
+                .distinct()
+                .count();
+
+        if (distinctMaterials != request.getLineItems().size()) {
+            throw new ValidationException("Duplicate materials found in the same request");
+        }
+
+        // 2. Check for duplicate requests from same factory in last 5 minutes
+        LocalDateTime fiveMinutesAgo = LocalDateTime.now().minusMinutes(5);
+
+        Specification<ProcurementRequest> duplicateSpec = ProcurementRequestSpecification.isNotDeleted()
+                .and((root, query, cb) -> cb.equal(root.get("factory").get("id"), request.getFactory().getId()))
+                .and((root, query, cb) -> cb.greaterThan(root.get("createdAt"), fiveMinutesAgo));
+
+        List<ProcurementRequest> recentRequests = procurementRequestRepository.findAll(duplicateSpec);
+
+        for (ProcurementRequest recentRequest : recentRequests) {
+            if (hasSameMaterialsAndQuantities(request, recentRequest)) {
+                throw new ValidationException(
+                        "A similar request with the same materials and quantities was created recently. " +
+                                "Please check request: " + recentRequest.getRequestNumber()
+                );
+            }
+        }
+    }
+
+    /**
+     * Check if two requests have same materials and quantities (Java 8 compatible)
+     */
+    private boolean hasSameMaterialsAndQuantities(ProcurementRequest request1, ProcurementRequest request2) {
+        if (request1.getLineItems().size() != request2.getLineItems().size()) {
+            return false;
+        }
+
+        // Create maps for comparison
+        Map<Long, BigDecimal> request1Items = request1.getLineItems().stream()
+                .collect(Collectors.toMap(
+                        item -> item.getMaterial().getId(),
+                        item -> item.getRequestedQuantity()
+                ));
+
+        Map<Long, BigDecimal> request2Items = request2.getLineItems().stream()
+                .collect(Collectors.toMap(
+                        item -> item.getMaterial().getId(),
+                        item -> item.getRequestedQuantity()
+                ));
+
+        return request1Items.equals(request2Items);
+    }
+
     private String generateRequestNumber(Factory factory) {
         String year = String.valueOf(LocalDateTime.now().getYear());
         String factoryCode = factory.getFactoryCode();
 
-        // Find the next sequence number for this factory and year
         String prefix = ProjectConstants.REQUEST_NUMBER_PREFIX + "-" + factoryCode + "-" + year + "-";
 
-        // This is a simplified version - in production, you might want to use a sequence table
         long count = procurementRequestRepository.count() + 1;
         String sequence = String.format("%03d", count);
 
@@ -366,63 +583,17 @@ public class ProcurementRequestService {
         }
     }
 
-    private void validateProcurementRequestForUpdate(ProcurementRequest requestDetails, ProcurementRequest existingRequest) {
-        // Additional validation logic for updates can be added here
-        if (existingRequest.getStatus() == ProcurementStatus.CLOSED) {
-            throw new ValidationException("Cannot update closed requests");
-        }
-    }
-
     private void validateLineItems(List<ProcurementLineItem> lineItems) {
         for (ProcurementLineItem lineItem : lineItems) {
             if (lineItem.getMaterial() == null || lineItem.getMaterial().getId() == null) {
                 throw new ValidationException("Material is required for all line items");
             }
-            if (lineItem.getRequestedQuantity() == null || lineItem.getRequestedQuantity().compareTo(java.math.BigDecimal.ZERO) <= 0) {
+            if (lineItem.getRequestedQuantity() == null || lineItem.getRequestedQuantity().compareTo(BigDecimal.ZERO) <= 0) {
                 throw new ValidationException("Requested quantity must be greater than zero");
             }
 
-            // Validate material exists
             materialRepository.findByIdActive(lineItem.getMaterial().getId())
                     .orElseThrow(() -> new EntityNotFoundException("Material not found with id: " + lineItem.getMaterial().getId()));
-        }
-    }
-
-    private void validateStatusTransition(ProcurementStatus currentStatus, ProcurementStatus newStatus) {
-        // Define valid status transitions
-        switch (currentStatus) {
-            case DRAFT:
-                if (newStatus != ProcurementStatus.SUBMITTED) {
-                    throw new ValidationException("Draft requests can only be submitted");
-                }
-                break;
-            case SUBMITTED:
-                if (newStatus != ProcurementStatus.IN_PROGRESS) {
-                    throw new ValidationException("Submitted requests can only move to in progress");
-                }
-                break;
-            case IN_PROGRESS:
-                if (newStatus != ProcurementStatus.ORDERED) {
-                    throw new ValidationException("In progress requests can only move to ordered");
-                }
-                break;
-            case ORDERED:
-                if (newStatus != ProcurementStatus.DISPATCHED) {
-                    throw new ValidationException("Ordered requests can only move to dispatched");
-                }
-                break;
-            case DISPATCHED:
-                if (newStatus != ProcurementStatus.RECEIVED) {
-                    throw new ValidationException("Dispatched requests can only move to received");
-                }
-                break;
-            case RECEIVED:
-                if (newStatus != ProcurementStatus.CLOSED) {
-                    throw new ValidationException("Received requests can only be closed");
-                }
-                break;
-            case CLOSED:
-                throw new ValidationException("Closed requests cannot be modified");
         }
     }
 }

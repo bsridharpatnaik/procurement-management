@@ -3,6 +3,7 @@ package com.sungroup.procurement.specification;
 import com.sungroup.procurement.entity.ProcurementRequest;
 import com.sungroup.procurement.entity.enums.Priority;
 import com.sungroup.procurement.entity.enums.ProcurementStatus;
+import com.sungroup.procurement.util.SecurityUtil;
 import org.springframework.data.jpa.domain.Specification;
 
 import javax.persistence.criteria.Join;
@@ -15,6 +16,29 @@ public class ProcurementRequestSpecification extends BaseSpecification<Procureme
 
     public static Specification<ProcurementRequest> isNotDeleted() {
         return BaseSpecification.isNotDeleted();
+    }
+
+    /**
+     * CRITICAL: Factory-based access control specification
+     * This should be applied to ALL procurement request queries for factory users
+     */
+    public static Specification<ProcurementRequest> withFactoryAccessControl() {
+        return (root, query, cb) -> {
+            List<Long> accessibleFactoryIds = SecurityUtil.getCurrentUserAccessibleFactoryIds();
+
+            // If empty list returned, it means no restriction (admin/purchase team/management)
+            if (accessibleFactoryIds.isEmpty() && !SecurityUtil.isCurrentUserFactoryUser()) {
+                return cb.conjunction(); // No restriction
+            }
+
+            // If empty list for factory user, it means no access
+            if (accessibleFactoryIds.isEmpty() && SecurityUtil.isCurrentUserFactoryUser()) {
+                return cb.disjunction(); // No access
+            }
+
+            // Restrict to accessible factories
+            return root.get("factory").get("id").in(accessibleFactoryIds);
+        };
     }
 
     public static Specification<ProcurementRequest> hasRequestNumber(String requestNumber) {
@@ -145,7 +169,9 @@ public class ProcurementRequestSpecification extends BaseSpecification<Procureme
 
     /**
      * Factory access filter - requests can only be seen by users from assigned factories
+     * @deprecated Use withFactoryAccessControl() instead for better security
      */
+    @Deprecated
     public static Specification<ProcurementRequest> accessibleByFactories(List<Long> accessibleFactoryIds) {
         return (root, query, cb) -> {
             if (accessibleFactoryIds == null || accessibleFactoryIds.isEmpty()) {
@@ -163,5 +189,13 @@ public class ProcurementRequestSpecification extends BaseSpecification<Procureme
             LocalDateTime cutoffDate = LocalDateTime.now().minusDays(days);
             return cb.lessThanOrEqualTo(root.get("createdAt"), cutoffDate);
         };
+    }
+
+    /**
+     * Combined specification that MUST be used for all procurement request queries
+     * to ensure proper access control
+     */
+    public static Specification<ProcurementRequest> withSecurityAndNotDeleted() {
+        return isNotDeleted().and(withFactoryAccessControl());
     }
 }
