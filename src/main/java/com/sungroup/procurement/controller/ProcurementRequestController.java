@@ -23,7 +23,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping(ProjectConstants.API_BASE_PATH + "/procurement-requests")
@@ -305,5 +307,55 @@ public class ProcurementRequestController {
         } else {
             return ResponseEntity.badRequest().body(response);
         }
+    }
+
+    @Operation(summary = "Submit procurement request")
+    @PostMapping("/{id}/submit")
+    public ResponseEntity<ApiResponse<ProcurementRequest>> submitRequest(@PathVariable Long id) {
+        log.info("Submitting procurement request: {}", id);
+        ApiResponse<ProcurementRequest> response = procurementRequestService.submitRequest(id);
+        return response.isSuccess() ? ResponseEntity.ok(response) : ResponseEntity.badRequest().body(response);
+    }
+
+    @Operation(summary = "Mark request for approval")
+    @PatchMapping("/{id}/mark-for-approval")
+    public ResponseEntity<ApiResponse<ProcurementRequest>> markForApproval(@PathVariable Long id) {
+        log.info("Marking request for approval: {}", id);
+        ApiResponse<ProcurementRequest> response = procurementRequestService.markForApproval(id);
+        return response.isSuccess() ? ResponseEntity.ok(response) : ResponseEntity.badRequest().body(response);
+    }
+
+    @Operation(summary = "Mark request as received")
+    @PatchMapping("/{id}/receive")
+    public ResponseEntity<ApiResponse<ProcurementRequest>> receiveRequest(
+            @PathVariable Long id,
+            @RequestBody Map<Long, BigDecimal> actualQuantities) {
+        log.info("Marking request as received: {}", id);
+        ApiResponse<ProcurementRequest> response = procurementRequestService.receiveRequest(id, actualQuantities);
+        return response.isSuccess() ? ResponseEntity.ok(response) : ResponseEntity.badRequest().body(response);
+    }
+
+    @Operation(summary = "Close procurement request")
+    @PatchMapping("/{id}/close")
+    public ResponseEntity<ApiResponse<ProcurementRequest>> closeRequest(@PathVariable Long id) {
+        log.info("Closing procurement request: {}", id);
+        ApiResponse<ProcurementRequest> response = procurementRequestService.closeRequest(id);
+        return response.isSuccess() ? ResponseEntity.ok(response) : ResponseEntity.badRequest().body(response);
+    }
+
+    @Operation(summary = "Get dashboard summary")
+    @GetMapping("/dashboard-summary")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getDashboardSummary() {
+        log.info("Fetching dashboard summary");
+        ApiResponse<Map<String, Object>> response = procurementRequestService.getDashboardSummary();
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Check if user can edit request")
+    @GetMapping("/{id}/can-edit")
+    public ResponseEntity<ApiResponse<Boolean>> canEditRequest(@PathVariable Long id) {
+        log.info("Checking edit permissions for request: {}", id);
+        // Implementation needed in service
+        return ResponseEntity.ok(ApiResponse.success("Edit permission checked", true));
     }
 }

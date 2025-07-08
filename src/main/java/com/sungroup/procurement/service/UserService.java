@@ -1,6 +1,7 @@
 package com.sungroup.procurement.service;
 
 import com.sungroup.procurement.constants.ProjectConstants;
+import com.sungroup.procurement.dto.UserNameDto;
 import com.sungroup.procurement.dto.request.FilterDataList;
 import com.sungroup.procurement.dto.request.PasswordUpdateRequest;
 import com.sungroup.procurement.dto.response.ApiResponse;
@@ -30,6 +31,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -515,6 +517,42 @@ public class UserService {
         // Update password if provided
         if (userDetails.getPassword() != null && !userDetails.getPassword().isEmpty()) {
             existingUser.setPassword(passwordEncoder.encode(userDetails.getPassword()));
+        }
+    }
+
+    public ApiResponse<List<UserNameDto>> getPurchaseTeamMembers() {
+        try {
+            List<User> purchaseTeamUsers = userRepository.findByRoleAndIsDeletedFalseAndIsActiveTrue(UserRole.PURCHASE_TEAM);
+            List<UserNameDto> userDtos = purchaseTeamUsers.stream()
+                    .map(user -> new UserNameDto(user.getId(), user.getUsername(), user.getFullName()))
+                    .collect(Collectors.toList());
+            return ApiResponse.success("Purchase team members fetched", userDtos);
+        } catch (Exception e) {
+            log.error("Error fetching purchase team members", e);
+            return ApiResponse.error("Failed to fetch purchase team members");
+        }
+    }
+
+    public ApiResponse<List<UserNameDto>> getManagementUsers() {
+        try {
+            List<User> managementUsers = userRepository.findByRoleAndIsDeletedFalseAndIsActiveTrue(UserRole.MANAGEMENT);
+            List<UserNameDto> userDtos = managementUsers.stream()
+                    .map(user -> new UserNameDto(user.getId(), user.getUsername(), user.getFullName()))
+                    .collect(Collectors.toList());
+            return ApiResponse.success("Management users fetched", userDtos);
+        } catch (Exception e) {
+            log.error("Error fetching management users", e);
+            return ApiResponse.error("Failed to fetch management users");
+        }
+    }
+
+    public ApiResponse<List<UserNameDto>> getUsersForAssignment() {
+        try {
+            // Only purchase team members can be assigned to requests
+            return getPurchaseTeamMembers();
+        } catch (Exception e) {
+            log.error("Error fetching users for assignment", e);
+            return ApiResponse.error("Failed to fetch users for assignment");
         }
     }
 }

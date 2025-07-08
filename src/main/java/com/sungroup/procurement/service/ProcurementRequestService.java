@@ -13,6 +13,7 @@ import com.sungroup.procurement.exception.EntityNotFoundException;
 import com.sungroup.procurement.exception.ValidationException;
 import com.sungroup.procurement.repository.*;
 import com.sungroup.procurement.specification.ProcurementRequestSpecification;
+import com.sungroup.procurement.util.PermissionValidator;
 import com.sungroup.procurement.util.ResponseFilterUtil;
 import com.sungroup.procurement.util.SecurityUtil;
 import com.sungroup.procurement.util.TimeUtil;
@@ -1270,5 +1271,67 @@ public class ProcurementRequestService {
         // Could add a removal reason field if needed for audit
         // For now, we can log the reason or add it to a notes field
         log.info("Line item {} removed with reason: {}", lineItem.getId(), removalReason);
+    }
+
+    public ApiResponse<Boolean> canEditRequest(Long requestId) {
+        try {
+            ProcurementRequest request = procurementRequestRepository.findByIdAndIsDeletedFalse(requestId)
+                    .orElseThrow(() -> new EntityNotFoundException("Request not found"));
+
+            // Use existing permission validation logic
+            PermissionValidator.validateOperationPermission(request, "EDIT");
+            return ApiResponse.success("Can edit", true);
+        } catch (Exception e) {
+            return ApiResponse.success("Cannot edit", false);
+        }
+    }
+
+    public ApiResponse<List<ProcurementStatus>> getNextValidStatuses(Long requestId) {
+        try {
+            ProcurementRequest request = procurementRequestRepository.findByIdAndIsDeletedFalse(requestId)
+                    .orElseThrow(() -> new EntityNotFoundException("Request not found"));
+
+            List<ProcurementStatus> validStatuses = new ArrayList<>();
+            ProcurementStatus currentStatus = request.getStatus();
+
+            // Based on current status and user role, determine valid next statuses
+            switch (currentStatus) {
+                case DRAFT:
+                    if (SecurityUtil.isCurrentUserFactoryUser()) {
+                        validStatuses.add(ProcurementStatus.SUBMITTED);
+                    }
+                    break;
+                case SUBMITTED:
+                    if (SecurityUtil.isCurrentUserPurchaseTeamOrManagement()) {
+                        validStatuses.add(ProcurementStatus.IN_PROGRESS);
+                    }
+                    break;
+                case IN_PROGRESS:
+                    if (SecurityUtil.isCurrentUserPurchaseTeamOrManagement()) {
+                        validStatuses.add(ProcurementStatus.ORDERED);
+                    }
+                    break;
+                case ORDERED:
+                    if (SecurityUtil.isCurrentUserPurchaseTeamOrManagement()) {
+                        validStatuses.add(ProcurementStatus.DISPATCHED);
+                    }
+                    break;
+                case DISPATCHED:
+                    if (SecurityUtil.isCurrentUserFactoryUser()) {
+                        validStatuses.add(ProcurementStatus.RECEIVED);
+                    }
+                    break;
+                case RECEIVED:
+                    if (SecurityUtil.isCurrentUserPurchaseTeamOrManagement()) {
+                        validStatuses.add(ProcurementStatus.CLOSED);
+                    }
+                    break;
+            }
+
+            return ApiResponse.success("Next valid statuses", validStatuses);
+        } catch (Exception e) {
+            log.error("Error getting next valid statuses", e);
+            return ApiResponse.error("Failed to get valid statuses");
+        }
     }
 }

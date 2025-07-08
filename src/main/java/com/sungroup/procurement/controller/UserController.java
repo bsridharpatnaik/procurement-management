@@ -1,6 +1,7 @@
 package com.sungroup.procurement.controller;
 
 import com.sungroup.procurement.constants.ProjectConstants;
+import com.sungroup.procurement.dto.UserNameDto;
 import com.sungroup.procurement.dto.request.FilterDataList;
 import com.sungroup.procurement.dto.request.PasswordUpdateRequest;
 import com.sungroup.procurement.dto.response.ApiResponse;
@@ -247,5 +248,29 @@ public class UserController {
         } else {
             return ResponseEntity.badRequest().body(response);
         }
+    }
+
+    @Operation(summary = "Get purchase team members for assignment")
+    @GetMapping("/purchase-team")
+    public ResponseEntity<ApiResponse<List<UserNameDto>>> getPurchaseTeamMembers() {
+        log.info("Fetching purchase team members");
+        ApiResponse<List<UserNameDto>> response = userService.getPurchaseTeamMembers();
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Get management users for approval")
+    @GetMapping("/management")
+    public ResponseEntity<ApiResponse<List<UserNameDto>>> getManagementUsers() {
+        log.info("Fetching management users");
+        ApiResponse<List<UserNameDto>> response = userService.getManagementUsers();
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Get users available for assignment")
+    @GetMapping("/for-assignment")
+    public ResponseEntity<ApiResponse<List<UserNameDto>>> getUsersForAssignment() {
+        log.info("Fetching users for assignment");
+        ApiResponse<List<UserNameDto>> response = userService.getUsersForAssignment();
+        return ResponseEntity.ok(response);
     }
 }
