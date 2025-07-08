@@ -989,9 +989,7 @@ public class ProcurementRequestService {
             return summary;
         }
 
-        // Get requests for assigned factories only
         Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted();
-
         List<ProcurementRequest> allRequests = procurementRequestRepository.findAll(spec);
 
         summary.put("totalRequests", allRequests.size());
@@ -1000,6 +998,7 @@ public class ProcurementRequestService {
         summary.put("inProgressRequests", countByStatus(allRequests, ProcurementStatus.IN_PROGRESS));
         summary.put("receivedRequests", countByStatus(allRequests, ProcurementStatus.RECEIVED));
         summary.put("closedRequests", countByStatus(allRequests, ProcurementStatus.CLOSED));
+        summary.put("cancelledRequests", countByStatus(allRequests, ProcurementStatus.CANCELLED)); // NEW
 
         return summary;
     }
@@ -1074,5 +1073,202 @@ public class ProcurementRequestService {
         String currentUsername = SecurityUtil.getCurrentUsername();
         return requests.stream().filter(r -> r.getApprovedBy() != null &&
                 currentUsername.equals(r.getApprovedBy().getUsername())).count();
+    }
+
+    @Transactional
+    public ApiResponse<ProcurementRequest> cancelProcurementRequest(Long id, String cancellationReason) {
+        try {
+            ProcurementRequest request = procurementRequestRepository.findByIdAndIsDeletedFalse(id)
+                    .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
+
+            // Validate factory access
+            validateFactoryAccess(request);
+
+            // Validate cancellation permissions and business rules
+            validateCancellationPermissions(request, cancellationReason);
+
+            // Perform cancellation
+            performRequestCancellation(request, cancellationReason);
+
+            ProcurementRequest cancelledRequest = procurementRequestRepository.save(request);
+
+            log.info("Procurement request cancelled: {} by {} with reason: {}",
+                    request.getRequestNumber(),
+                    SecurityUtil.getCurrentUsername(),
+                    cancellationReason);
+
+            return ApiResponse.success("Request cancelled successfully", cancelledRequest);
+        } catch (EntityNotFoundException | ValidationException | SecurityException e) {
+            return ApiResponse.error(e.getMessage());
+        } catch (Exception e) {
+            log.error("Error cancelling procurement request with id: {}", id, e);
+            return ApiResponse.error("Failed to cancel procurement request");
+        }
+    }
+
+    @Transactional
+    public ApiResponse<ProcurementRequest> removeLineItem(Long requestId, Long lineItemId, String removalReason) {
+        try {
+            ProcurementRequest request = procurementRequestRepository.findByIdAndIsDeletedFalse(requestId)
+                    .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
+
+            // Validate factory access
+            validateFactoryAccess(request);
+
+            ProcurementLineItem lineItem = request.getLineItems().stream()
+                    .filter(item -> item.getId().equals(lineItemId) && !item.getIsDeleted())
+                    .findFirst()
+                    .orElseThrow(() -> new EntityNotFoundException("Line item not found"));
+
+            // Validate line item removal permissions
+            validateLineItemRemovalPermissions(request, lineItem, removalReason);
+
+            // Perform line item removal (soft delete)
+            performLineItemRemoval(lineItem, removalReason);
+
+            // Check if request becomes empty after removal
+            long remainingItems = request.getLineItems().stream()
+                    .filter(item -> !item.getIsDeleted())
+                    .count();
+
+            if (remainingItems == 0) {
+                // No items left - cancel the entire request
+                performRequestCancellation(request, "All line items removed: " + removalReason);
+            }
+
+            ProcurementRequest updatedRequest = procurementRequestRepository.save(request);
+
+            log.info("Line item removed: Request {} Line Item {} by {} with reason: {}",
+                    request.getRequestNumber(),
+                    lineItemId,
+                    SecurityUtil.getCurrentUsername(),
+                    removalReason);
+
+            return ApiResponse.success("Line item removed successfully", updatedRequest);
+        } catch (EntityNotFoundException | ValidationException | SecurityException e) {
+            return ApiResponse.error(e.getMessage());
+        } catch (Exception e) {
+            log.error("Error removing line item {} from request {}", lineItemId, requestId, e);
+            return ApiResponse.error("Failed to remove line item");
+        }
+    }
+
+    // VALIDATION METHODS
+    private void validateCancellationPermissions(ProcurementRequest request, String cancellationReason) {
+        UserRole currentUserRole = SecurityUtil.getCurrentUserRole();
+        ProcurementStatus currentStatus = request.getStatus();
+        String currentUsername = SecurityUtil.getCurrentUsername();
+
+        // Check if already cancelled
+        if (request.getIsCancelled()) {
+            throw new ValidationException("Request is already cancelled");
+        }
+
+        // Check if can be cancelled based on status
+        if (!request.canBeCancelled()) {
+            throw new ValidationException("Cannot cancel request in " + currentStatus + " status");
+        }
+
+        // Check if has dispatched items
+        if (request.hasDispatchedItems()) {
+            throw new ValidationException("Cannot cancel request with dispatched items");
+        }
+
+        // Role-based permission validation
+        switch (currentStatus) {
+            case DRAFT:
+                // Only factory user (creator) can cancel
+                if (currentUserRole != UserRole.FACTORY_USER) {
+                    throw new SecurityException("Only factory users can cancel draft requests");
+                }
+                if (!request.getCreatedBy().equals(currentUsername)) {
+                    throw new SecurityException("Only the creator can cancel draft requests");
+                }
+                break;
+
+            case SUBMITTED:
+            case IN_PROGRESS:
+            case ORDERED:
+                // Only purchase team or management can cancel
+                if (currentUserRole != UserRole.PURCHASE_TEAM &&
+                        currentUserRole != UserRole.MANAGEMENT &&
+                        currentUserRole != UserRole.ADMIN) {
+                    throw new SecurityException("Only purchase team or management can cancel " + currentStatus + " requests");
+                }
+                break;
+
+            default:
+                throw new ValidationException("Cannot cancel request in " + currentStatus + " status");
+        }
+
+        // Validate reason
+        if (cancellationReason == null || cancellationReason.trim().isEmpty()) {
+            throw new ValidationException("Cancellation reason is required");
+        }
+
+        if (cancellationReason.trim().length() > 1000) {
+            throw new ValidationException("Cancellation reason cannot exceed 1000 characters");
+        }
+    }
+
+    private void validateLineItemRemovalPermissions(ProcurementRequest request,
+                                                    ProcurementLineItem lineItem,
+                                                    String removalReason) {
+        ProcurementStatus currentStatus = request.getStatus();
+        UserRole currentUserRole = SecurityUtil.getCurrentUserRole();
+        String currentUsername = SecurityUtil.getCurrentUsername();
+
+        // Line item removal only allowed in early stages
+        if (currentStatus != ProcurementStatus.DRAFT && currentStatus != ProcurementStatus.SUBMITTED) {
+            throw new ValidationException("Line items can only be removed from DRAFT or SUBMITTED requests");
+        }
+
+        // Check if line item has been processed (vendor assigned, etc.)
+        if (lineItem.getAssignedVendor() != null || lineItem.getAssignedPrice() != null) {
+            throw new ValidationException("Cannot remove line item that has vendor assignment or pricing");
+        }
+
+        // Role-based permissions
+        if (currentStatus == ProcurementStatus.DRAFT) {
+            // Only creator can remove from draft
+            if (currentUserRole != UserRole.FACTORY_USER || !request.getCreatedBy().equals(currentUsername)) {
+                throw new SecurityException("Only the creator can remove line items from draft requests");
+            }
+        } else if (currentStatus == ProcurementStatus.SUBMITTED) {
+            // Only purchase team/management can remove from submitted
+            if (currentUserRole != UserRole.PURCHASE_TEAM &&
+                    currentUserRole != UserRole.MANAGEMENT &&
+                    currentUserRole != UserRole.ADMIN) {
+                throw new SecurityException("Only purchase team can remove line items from submitted requests");
+            }
+        }
+
+        // Validate reason
+        if (removalReason == null || removalReason.trim().isEmpty()) {
+            throw new ValidationException("Line item removal reason is required");
+        }
+    }
+
+    private void performRequestCancellation(ProcurementRequest request, String cancellationReason) {
+        User currentUser = SecurityUtil.getCurrentUser();
+
+        // Cancel the request
+        request.setIsCancelled(true);
+        request.setCancellationReason(cancellationReason.trim());
+        request.setCancelledBy(currentUser);
+        request.setCancelledDate(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+        request.setStatus(ProcurementStatus.CANCELLED);
+
+        // Note: Line items remain as-is when request is cancelled
+        // Their status indicates what stage they were in when request was cancelled
+    }
+
+    private void performLineItemRemoval(ProcurementLineItem lineItem, String removalReason) {
+        // Soft delete the line item
+        lineItem.setIsDeleted(true);
+
+        // Could add a removal reason field if needed for audit
+        // For now, we can log the reason or add it to a notes field
+        log.info("Line item {} removed with reason: {}", lineItem.getId(), removalReason);
     }
 }

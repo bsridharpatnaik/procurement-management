@@ -198,4 +198,20 @@ public class ProcurementRequestSpecification extends BaseSpecification<Procureme
     public static Specification<ProcurementRequest> withSecurityAndNotDeleted() {
         return isNotDeleted().and(withFactoryAccessControl());
     }
+
+    public static Specification<ProcurementRequest> isCancelled(Boolean cancelled) {
+        return booleanEquals("isCancelled", cancelled);
+    }
+
+    public static Specification<ProcurementRequest> cancelledBy(String username) {
+        return nestedFieldEquals("cancelledBy", "username", username);
+    }
+
+    public static Specification<ProcurementRequest> cancelledBetween(LocalDateTime startDate, LocalDateTime endDate) {
+        return dateBetween("cancelledDate", startDate, endDate);
+    }
+
+    public static Specification<ProcurementRequest> hasCancellationReason(String reason) {
+        return fieldContains("cancellationReason", reason);
+    }
 }

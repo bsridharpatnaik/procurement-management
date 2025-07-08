@@ -1,6 +1,7 @@
 package com.sungroup.procurement.entity;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.sungroup.procurement.entity.enums.LineItemStatus;
 import com.sungroup.procurement.entity.enums.Priority;
 import com.sungroup.procurement.entity.enums.ProcurementStatus;
 import lombok.AllArgsConstructor;
@@ -71,6 +72,35 @@ public class ProcurementRequest extends BaseEntity {
     @Column(name = "short_close_reason", columnDefinition = "TEXT")
     private String shortCloseReason;
 
+    // NEW CANCELLATION FIELDS
+    @Column(name = "is_cancelled", nullable = false)
+    private Boolean isCancelled = false;
+
+    @Column(name = "cancellation_reason", columnDefinition = "TEXT")
+    private String cancellationReason;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cancelled_by")
+    private User cancelledBy;
+
+    @Column(name = "cancelled_date")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "Asia/Kolkata")
+    private LocalDateTime cancelledDate;
+
     @OneToMany(mappedBy = "procurementRequest", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<ProcurementLineItem> lineItems = new ArrayList<>();
+
+    // NEW HELPER METHODS
+    public boolean canBeCancelled() {
+        return !isCancelled &&
+                status != ProcurementStatus.DISPATCHED &&
+                status != ProcurementStatus.RECEIVED &&
+                status != ProcurementStatus.CLOSED;
+    }
+
+    public boolean hasDispatchedItems() {
+        return lineItems != null && lineItems.stream()
+                .anyMatch(item -> item.getStatus() == LineItemStatus.DISPATCHED ||
+                        item.getStatus() == LineItemStatus.RECEIVED);
+    }
 }

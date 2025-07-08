@@ -46,6 +46,14 @@ public class ProjectConstants {
     public static final String INVALID_QUANTITY = "Quantity must be greater than zero";
     public static final String INVALID_PRICE = "Price must be greater than zero";
 
+    public static final String REQUEST_CANCELLED_SUCCESS = "Request cancelled successfully";
+    public static final String LINE_ITEM_REMOVED_SUCCESS = "Line item removed successfully";
+    public static final String CANCELLATION_REASON_REQUIRED = "Cancellation reason is required";
+    public static final String REMOVAL_REASON_REQUIRED = "Line item removal reason is required";
+    public static final String CANNOT_CANCEL_DISPATCHED = "Cannot cancel dispatched requests";
+    public static final String CANNOT_REMOVE_PROCESSED_ITEM = "Cannot remove line item with vendor assignment";
+    public static final String ALREADY_CANCELLED = "Request is already cancelled";
+
     private ProjectConstants() {
         // Private constructor to prevent instantiation
     }

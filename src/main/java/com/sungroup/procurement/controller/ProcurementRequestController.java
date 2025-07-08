@@ -262,4 +262,48 @@ public class ProcurementRequestController {
             return ResponseEntity.badRequest().body(response);
         }
     }
+
+    @Operation(
+            summary = "Cancel procurement request",
+            description = "Cancel an entire procurement request. Only allowed for non-dispatched requests."
+    )
+    @PatchMapping("/{id}/cancel")
+    public ResponseEntity<ApiResponse<ProcurementRequest>> cancelProcurementRequest(
+            @Parameter(description = "Procurement Request ID", required = true)
+            @PathVariable Long id,
+            @Parameter(description = "Cancellation reason", required = true)
+            @RequestParam String cancellationReason) {
+
+        log.info("Cancelling procurement request: {} with reason: {}", id, cancellationReason);
+        ApiResponse<ProcurementRequest> response = procurementRequestService.cancelProcurementRequest(id, cancellationReason);
+
+        if (response.isSuccess()) {
+            return ResponseEntity.ok(response);
+        } else {
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
+    @Operation(
+            summary = "Remove line item from request",
+            description = "Remove a specific line item from procurement request. Only allowed for DRAFT/SUBMITTED requests without vendor assignments."
+    )
+    @DeleteMapping("/{id}/line-items/{lineItemId}")
+    public ResponseEntity<ApiResponse<ProcurementRequest>> removeLineItem(
+            @Parameter(description = "Procurement Request ID", required = true)
+            @PathVariable Long id,
+            @Parameter(description = "Line Item ID", required = true)
+            @PathVariable Long lineItemId,
+            @Parameter(description = "Removal reason", required = true)
+            @RequestParam String removalReason) {
+
+        log.info("Removing line item: {} from request: {} with reason: {}", lineItemId, id, removalReason);
+        ApiResponse<ProcurementRequest> response = procurementRequestService.removeLineItem(id, lineItemId, removalReason);
+
+        if (response.isSuccess()) {
+            return ResponseEntity.ok(response);
+        } else {
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
 }

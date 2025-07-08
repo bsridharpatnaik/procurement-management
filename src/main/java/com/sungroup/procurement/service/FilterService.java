@@ -75,7 +75,6 @@ public class FilterService {
     public Boolean getBooleanValue(FilterDataList filterData, String fieldName) {
         String value = getStringValue(filterData, fieldName);
         if (value == null) return null;
-
         return Boolean.parseBoolean(value);
     }
 

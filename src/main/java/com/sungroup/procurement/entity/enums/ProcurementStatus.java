@@ -7,5 +7,6 @@ public enum ProcurementStatus {
     ORDERED,
     DISPATCHED,
     RECEIVED,
-    CLOSED
+    CLOSED,
+    CANCELLED
 }
