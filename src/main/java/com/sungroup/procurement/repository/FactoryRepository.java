@@ -32,4 +32,6 @@ public interface FactoryRepository extends BaseRepository<Factory, Long> {
     @Query("SELECT f FROM Factory f WHERE f.isDeleted = false AND f.isActive = true AND " +
             "(:name IS NULL OR LOWER(f.name) LIKE LOWER(CONCAT('%', :name, '%')))")
     List<Factory> findActiveFactoriesByName(@Param("name") String name);
+
+    long countByIsDeletedFalse();
 }

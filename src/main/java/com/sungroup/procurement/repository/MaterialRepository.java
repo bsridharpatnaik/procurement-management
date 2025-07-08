@@ -68,4 +68,7 @@ public interface MaterialRepository extends BaseRepository<Material, Long> {
 
     // Optional: For recent updates check
     long countByUpdatedByAndUpdatedAtAfter(String updatedBy, LocalDateTime afterDate);
+
+    long countByIsDeletedFalse();
+
 }

@@ -25,13 +25,12 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.HashMap;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -49,21 +48,17 @@ public class ProcurementRequestService {
     private final FilterService filterService;
     private final ReturnRequestService returnRequestService;
 
-    // READ Operations with Factory Access Control
     public ApiResponse<List<ProcurementRequest>> findRequestsWithFilters(FilterDataList filterData, Pageable pageable) {
         try {
-            Specification<ProcurementRequest> spec = buildProcurementRequestSpecification(filterData);
-
-            // Apply factory access control
-            spec = applyFactoryAccessControl(spec);
+            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted()
+                    .and(buildProcurementRequestSpecification(filterData));
 
             Page<ProcurementRequest> requestPage = procurementRequestRepository.findAll(spec, pageable);
 
-            // Filter vendor information for factory users
+            // Apply vendor filtering for factory users
             List<ProcurementRequest> filteredRequests = filterVendorInformationForFactoryUsers(requestPage.getContent());
 
             PaginationResponse pagination = PaginationResponse.from(requestPage);
-
             return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, filteredRequests, pagination);
         } catch (Exception e) {
             log.error("Error fetching procurement requests with filters", e);
@@ -73,7 +68,7 @@ public class ProcurementRequestService {
 
     public ApiResponse<ProcurementRequest> findById(Long id) {
         try {
-            ProcurementRequest request = procurementRequestRepository.findByIdActive(id)
+            ProcurementRequest request = procurementRequestRepository.findByIdAndIsDeletedFalse(id)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
 
             // Validate factory access
@@ -118,7 +113,8 @@ public class ProcurementRequestService {
                 return ApiResponse.error("Factory users cannot view unassigned requests");
             }
 
-            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.isNotDeleted()
+            // SECURE QUERY: Include factory access control even for purchase team
+            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted()
                     .and(ProcurementRequestSpecification.isUnassigned());
 
             List<ProcurementRequest> requests = procurementRequestRepository.findAll(spec);
@@ -438,7 +434,7 @@ public class ProcurementRequestService {
                 throw new SecurityException("Only purchase team can close requests");
             }
 
-            ProcurementRequest request = procurementRequestRepository.findByIdActive(id)
+            ProcurementRequest request = procurementRequestRepository.findByIdAndIsDeletedFalse(id)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
 
             // Validate status
@@ -446,7 +442,7 @@ public class ProcurementRequestService {
                 throw new ValidationException("Only received requests can be closed");
             }
 
-            // Check for pending returns
+            // CRITICAL: Check for pending returns using the return service
             if (!returnRequestService.canCloseProcurementRequest(id)) {
                 throw new ValidationException("Cannot close request with pending return requests");
             }
@@ -530,13 +526,19 @@ public class ProcurementRequestService {
         FilterService.DateRange expectedDeliveryRange = filterService.getDateRange(filterData, "expectedStartDate", "expectedEndDate");
 
         if (requestNumber != null) spec = spec.and(ProcurementRequestSpecification.hasRequestNumber(requestNumber));
-        if (statuses != null && !statuses.isEmpty()) spec = spec.and(ProcurementRequestSpecification.hasStatuses(statuses));
-        if (priorities != null && !priorities.isEmpty()) spec = spec.and(ProcurementRequestSpecification.hasPriorities(priorities));
-        if (factoryIds != null && !factoryIds.isEmpty()) spec = spec.and(ProcurementRequestSpecification.hasFactoryIds(factoryIds));
+        if (statuses != null && !statuses.isEmpty())
+            spec = spec.and(ProcurementRequestSpecification.hasStatuses(statuses));
+        if (priorities != null && !priorities.isEmpty())
+            spec = spec.and(ProcurementRequestSpecification.hasPriorities(priorities));
+        if (factoryIds != null && !factoryIds.isEmpty())
+            spec = spec.and(ProcurementRequestSpecification.hasFactoryIds(factoryIds));
         if (factoryName != null) spec = spec.and(ProcurementRequestSpecification.hasFactoryName(factoryName));
-        if (assignedToIds != null && !assignedToIds.isEmpty()) spec = spec.and(ProcurementRequestSpecification.isAssignedToUsers(assignedToIds));
-        if (requiresApproval != null) spec = spec.and(ProcurementRequestSpecification.requiresApproval(requiresApproval));
-        if (approvedByIds != null && !approvedByIds.isEmpty()) spec = spec.and(ProcurementRequestSpecification.isApprovedBy(approvedByIds.get(0)));
+        if (assignedToIds != null && !assignedToIds.isEmpty())
+            spec = spec.and(ProcurementRequestSpecification.isAssignedToUsers(assignedToIds));
+        if (requiresApproval != null)
+            spec = spec.and(ProcurementRequestSpecification.requiresApproval(requiresApproval));
+        if (approvedByIds != null && !approvedByIds.isEmpty())
+            spec = spec.and(ProcurementRequestSpecification.isApprovedBy(approvedByIds.get(0)));
         if (isShortClosed != null) spec = spec.and(ProcurementRequestSpecification.isShortClosed(isShortClosed));
         if (createdBy != null) spec = spec.and(ProcurementRequestSpecification.createdBy(createdBy));
         if (materialId != null) spec = spec.and(ProcurementRequestSpecification.hasMaterialId(materialId));
@@ -595,7 +597,7 @@ public class ProcurementRequestService {
         if (SecurityUtil.isCurrentUserFactoryUser()) {
             return requests.stream()
                     .map(this::filterVendorInformationForFactoryUser)
-                    .collect(Collectors.toList());
+                    .collect(Collectors.toList()); // Collectors import needed
         }
         return requests;
     }

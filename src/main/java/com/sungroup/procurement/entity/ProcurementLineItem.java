@@ -67,48 +67,6 @@ public class ProcurementLineItem extends BaseEntity {
     private List<ReturnRequest> returnRequests = new ArrayList<>();
 
     /**
-     * Calculate effective quantity (actual received minus returned)
-     */
-    public BigDecimal getEffectiveQuantity() {
-        if (actualQuantity == null) {
-            return BigDecimal.ZERO;
-        }
-        if (totalReturnedQuantity == null) {
-            return actualQuantity;
-        }
-        return actualQuantity.subtract(totalReturnedQuantity);
-    }
-
-    /**
-     * Check if this line item can be returned
-     */
-    public boolean canBeReturned() {
-        return status == LineItemStatus.RECEIVED &&
-                actualQuantity != null &&
-                actualQuantity.compareTo(BigDecimal.ZERO) > 0 &&
-                getEffectiveQuantity().compareTo(BigDecimal.ZERO) > 0;
-    }
-
-    /**
-     * Get maximum returnable quantity
-     */
-    public BigDecimal getMaxReturnableQuantity() {
-        return getEffectiveQuantity();
-    }
-
-    /**
-     * Check if there are pending return requests
-     */
-    public boolean hasPendingReturns() {
-        if (returnRequests == null || returnRequests.isEmpty()) {
-            return false;
-        }
-        return returnRequests.stream()
-                .anyMatch(returnRequest -> returnRequest.getReturnStatus() ==
-                        com.sungroup.procurement.entity.enums.ReturnStatus.RETURN_REQUESTED);
-    }
-
-    /**
      * Update return totals when a return is approved
      */
     public void updateReturnTotals() {
@@ -126,5 +84,47 @@ public class ProcurementLineItem extends BaseEntity {
 
         totalReturnedQuantity = approvedReturns;
         hasReturns = approvedReturns.compareTo(BigDecimal.ZERO) > 0;
+    }
+
+    /**
+     * Calculate effective quantity after returns
+     */
+    public BigDecimal getEffectiveQuantity() {
+        if (actualQuantity == null) {
+            return BigDecimal.ZERO;
+        }
+        if (totalReturnedQuantity == null || totalReturnedQuantity.compareTo(BigDecimal.ZERO) == 0) {
+            return actualQuantity;
+        }
+        return actualQuantity.subtract(totalReturnedQuantity);
+    }
+
+    /**
+     * Get maximum returnable quantity (actual - already returned)
+     */
+    public BigDecimal getMaxReturnableQuantity() {
+        return getEffectiveQuantity();
+    }
+
+    /**
+     * Check if this line item can be returned
+     */
+    public boolean canBeReturned() {
+        return status == LineItemStatus.RECEIVED &&
+                actualQuantity != null &&
+                actualQuantity.compareTo(BigDecimal.ZERO) > 0 &&
+                getMaxReturnableQuantity().compareTo(BigDecimal.ZERO) > 0;
+    }
+
+    /**
+     * Check if there are pending return requests for this line item
+     */
+    public boolean hasPendingReturns() {
+        if (returnRequests == null || returnRequests.isEmpty()) {
+            return false;
+        }
+        return returnRequests.stream()
+                .anyMatch(returnRequest ->
+                        returnRequest.getReturnStatus() == com.sungroup.procurement.entity.enums.ReturnStatus.RETURN_REQUESTED);
     }
 }

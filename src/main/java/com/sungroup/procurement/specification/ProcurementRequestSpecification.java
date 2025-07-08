@@ -19,24 +19,24 @@ public class ProcurementRequestSpecification extends BaseSpecification<Procureme
     }
 
     /**
-     * CRITICAL: Factory-based access control specification
-     * This should be applied to ALL procurement request queries for factory users
+     * CRITICAL: Apply factory access control to ALL queries
      */
     public static Specification<ProcurementRequest> withFactoryAccessControl() {
         return (root, query, cb) -> {
+            // Get current user's accessible factory IDs
             List<Long> accessibleFactoryIds = SecurityUtil.getCurrentUserAccessibleFactoryIds();
 
-            // If empty list returned, it means no restriction (admin/purchase team/management)
-            if (accessibleFactoryIds.isEmpty() && !SecurityUtil.isCurrentUserFactoryUser()) {
-                return cb.conjunction(); // No restriction
+            // If user is not a factory user, no restriction
+            if (!SecurityUtil.isCurrentUserFactoryUser()) {
+                return cb.conjunction(); // No restriction for admin/purchase/management
             }
 
-            // If empty list for factory user, it means no access
-            if (accessibleFactoryIds.isEmpty() && SecurityUtil.isCurrentUserFactoryUser()) {
+            // If factory user has no assigned factories, deny all access
+            if (accessibleFactoryIds.isEmpty()) {
                 return cb.disjunction(); // No access
             }
 
-            // Restrict to accessible factories
+            // Restrict to accessible factories only
             return root.get("factory").get("id").in(accessibleFactoryIds);
         };
     }

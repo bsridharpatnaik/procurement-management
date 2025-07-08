@@ -70,4 +70,5 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
     boolean existsByAssignedFactoriesIdAndIsDeletedFalse(Long factoryId);
     long countByRoleAndIsDeletedFalseAndIsActiveTrue(UserRole role);
     long countByRoleAndIsDeletedFalse(UserRole role);
+    long countByIsDeletedFalse();
 }

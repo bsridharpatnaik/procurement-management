@@ -53,7 +53,7 @@ public class MaterialService {
 
     public ApiResponse<Material> findById(Long id) {
         try {
-            Material material = materialRepository.findByIdActive(id)
+            Material material = materialRepository.findByIdAndIsDeletedFalse(id)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.MATERIAL_NOT_FOUND));
 
             return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, material);
@@ -139,7 +139,7 @@ public class MaterialService {
     @Transactional
     public ApiResponse<Material> updateMaterial(Long id, Material materialDetails) {
         try {
-            Material existingMaterial = materialRepository.findByIdActive(id)
+            Material existingMaterial = materialRepository.findByIdAndIsDeletedFalse(id)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.MATERIAL_NOT_FOUND));
 
             preprocessMaterial(materialDetails);

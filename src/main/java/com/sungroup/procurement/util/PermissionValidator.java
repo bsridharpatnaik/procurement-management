@@ -379,4 +379,43 @@ public class PermissionValidator {
     private static boolean isPurchaseTeamOrManagement(UserRole userRole) {
         return userRole == UserRole.PURCHASE_TEAM || userRole == UserRole.MANAGEMENT || userRole == UserRole.ADMIN;
     }
+
+    /**
+     * CRITICAL: Validate factory access for all operations
+     */
+    public static void validateFactoryAccessForOperation(ProcurementRequest request, String operation) {
+        Long factoryId = request.getFactory().getId();
+        SecurityUtil.validateFactoryAccess(factoryId, operation);
+    }
+
+    /**
+     * CRITICAL: Validate user can perform specific operation based on request status
+     */
+    public static void validateOperationPermission(ProcurementRequest request, String operation) {
+        validateFactoryAccessForOperation(request, operation);
+
+        // Additional status-based validation
+        ProcurementStatus status = request.getStatus();
+        UserRole userRole = SecurityUtil.getCurrentUserRole();
+
+        switch (operation) {
+            case "VIEW":
+                // Factory access already validated above
+                break;
+            case "EDIT":
+                validateCanEditProcurementRequest(request);
+                break;
+            case "DELETE":
+                validateDeletionPermission(request);
+                break;
+            case "ASSIGN_VENDOR":
+                validateLineItemEditPermission(request, "VENDOR_ASSIGNMENT");
+                break;
+            case "APPROVE":
+                validateApprovalPermission(request);
+                break;
+            default:
+                throw new ValidationException("Unknown operation: " + operation);
+        }
+    }
 }

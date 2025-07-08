@@ -28,13 +28,14 @@ public class ResponseFilterUtil {
     }
 
     /**
-     * Filter vendor information from a single procurement request
+     * CRITICAL: This method should be called for ALL data returned to factory users
      */
     public static ProcurementRequest filterProcurementRequestForUser(ProcurementRequest request) {
         if (SecurityUtil.canSeeVendorInformation()) {
-            return request; // No filtering needed
+            return request; // No filtering needed for purchase/management/admin
         }
 
+        // Hide vendor information for factory users
         hideVendorInformationFromRequest(request);
         return request;
     }
@@ -102,13 +103,11 @@ public class ResponseFilterUtil {
      * Hide vendor information from a single line item
      */
     private static void hideVendorInformationFromLineItem(ProcurementLineItem lineItem) {
-        // Remove vendor reference completely
+        // Completely remove vendor information for factory users
         lineItem.setAssignedVendor(null);
-
-        // Remove price information
         lineItem.setAssignedPrice(null);
 
-        // If there are return requests, filter them too
+        // Also filter any return requests
         if (lineItem.getReturnRequests() != null && !lineItem.getReturnRequests().isEmpty()) {
             lineItem.getReturnRequests().forEach(ResponseFilterUtil::hideVendorInformationFromReturnRequest);
         }

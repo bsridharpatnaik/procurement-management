@@ -86,7 +86,7 @@ public class ProcurementLineItemService {
             PermissionValidator.validateLineItemEditPermission(lineItem.getProcurementRequest(), "VENDOR_ASSIGNMENT");
 
             // Validate vendor exists and is active
-            Vendor vendor = vendorRepository.findByIdActive(vendorId)
+            Vendor vendor = vendorRepository.findByIdAndIsDeletedFalse(vendorId)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.VENDOR_NOT_FOUND));
 
             // Validate price

@@ -53,7 +53,7 @@ public class VendorService {
 
     public ApiResponse<Vendor> findById(Long id) {
         try {
-            Vendor vendor = vendorRepository.findByIdActive(id)
+            Vendor vendor = vendorRepository.findByIdAndIsDeletedFalse(id)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.VENDOR_NOT_FOUND));
 
             return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, vendor);

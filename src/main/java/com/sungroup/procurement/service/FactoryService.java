@@ -53,7 +53,7 @@ public class FactoryService {
 
     public ApiResponse<Factory> findById(Long id) {
         try {
-            Factory factory = factoryRepository.findByIdActive(id)
+            Factory factory = factoryRepository.findByIdAndIsDeletedFalse(id)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.FACTORY_NOT_FOUND));
 
             return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, factory);
@@ -201,7 +201,8 @@ public class FactoryService {
 
         if (name != null) spec = spec.and(FactorySpecification.hasName(name));
         if (factoryCode != null) spec = spec.and(FactorySpecification.hasFactoryCode(factoryCode));
-        if (factoryCodes != null && !factoryCodes.isEmpty()) spec = spec.and(FactorySpecification.hasFactoryCodes(factoryCodes));
+        if (factoryCodes != null && !factoryCodes.isEmpty())
+            spec = spec.and(FactorySpecification.hasFactoryCodes(factoryCodes));
         if (isActive != null) spec = spec.and(FactorySpecification.isActive(isActive));
         if (ids != null && !ids.isEmpty()) spec = spec.and(FactorySpecification.hasIds(ids));
         if (createdBy != null) spec = spec.and(FactorySpecification.createdBy(createdBy));

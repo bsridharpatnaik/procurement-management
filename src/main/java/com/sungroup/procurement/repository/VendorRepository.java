@@ -57,4 +57,6 @@ public interface VendorRepository extends BaseRepository<Vendor, Long> {
     boolean existsByCreatedByAndIsDeletedFalse(String createdBy);
 
     long countByUpdatedByAndUpdatedAtAfter(String updatedBy, LocalDateTime afterDate);
+
+    long countByIsDeletedFalse();
 }
