@@ -117,6 +117,9 @@ public class ResponseFilterUtil {
      * Hide vendor information from return request (through its line item)
      */
     private static void hideVendorInformationFromReturnRequest(ReturnRequest returnRequest) {
+        if (returnRequest == null) return;
+
+        // Filter the associated line item
         if (returnRequest.getProcurementLineItem() != null) {
             hideVendorInformationFromLineItem(returnRequest.getProcurementLineItem());
         }
@@ -184,6 +187,12 @@ public class ResponseFilterUtil {
             return null;
         }
 
+        // If user can see vendor information, return object as-is
+        if (SecurityUtil.canSeeVendorInformation()) {
+            return object;
+        }
+
+        // Apply filtering for factory users
         if (object instanceof ProcurementRequest) {
             return (T) filterProcurementRequestForUser((ProcurementRequest) object);
         } else if (object instanceof ProcurementLineItem) {
@@ -201,10 +210,35 @@ public class ResponseFilterUtil {
                 } else if (firstItem instanceof ReturnRequest) {
                     return (T) filterReturnRequestsForUser((List<ReturnRequest>) list);
                 }
+                // FIXED: Add filtering for other vendor-related objects
+                else if (firstItem.getClass().getSimpleName().contains("PriceHistory") ||
+                        firstItem.getClass().getSimpleName().contains("PurchaseHistory")) {
+                    return (T) filterMaterialPriceHistoryForUser((List<Object>) list);
+                }
             }
         }
 
         // If no specific filtering needed, return as is
         return object;
+    }
+
+    public static List<Object> filterMaterialPriceHistoryForUser(List<Object> priceHistory) {
+        if (SecurityUtil.canSeeVendorInformation()) {
+            return priceHistory;
+        }
+
+        // For factory users, return empty list or filtered list without vendor info
+        // This prevents factory users from seeing any vendor-price relationships
+        return java.util.Collections.emptyList();
+    }
+
+    // NEW: Filter purchase history for factory users
+    public static List<Object> filterPurchaseHistoryForUser(List<Object> purchaseHistory) {
+        if (SecurityUtil.canSeeVendorInformation()) {
+            return purchaseHistory;
+        }
+
+        // Factory users should not see purchase history as it contains vendor information
+        return java.util.Collections.emptyList();
     }
 }

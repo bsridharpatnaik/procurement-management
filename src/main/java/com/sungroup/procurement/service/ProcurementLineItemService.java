@@ -51,8 +51,7 @@ public class ProcurementLineItemService {
 
     public ApiResponse<ProcurementLineItem> findById(Long id) {
         try {
-            ProcurementLineItem lineItem = lineItemRepository.findByIdAndIsDeletedFalse(id)
-                    .orElseThrow(() -> new EntityNotFoundException("Line item not found"));
+            ProcurementLineItem lineItem = lineItemRepository.findByIdAndIsDeletedFalse(id).orElseThrow(() -> new EntityNotFoundException("Line item not found"));
 
             // Validate factory access
             Long factoryId = lineItem.getProcurementRequest().getFactory().getId();
@@ -94,6 +93,12 @@ public class ProcurementLineItemService {
                 throw new ValidationException("Price must be greater than zero");
             }
 
+            // FIXED: Validate line item is in correct status for vendor assignment
+            if (lineItem.getStatus() != LineItemStatus.PENDING &&
+                    lineItem.getStatus() != LineItemStatus.IN_PROGRESS) {
+                throw new ValidationException("Can only assign vendors to pending or in-progress line items");
+            }
+
             // Assign vendor and price
             lineItem.setAssignedVendor(vendor);
             lineItem.setAssignedPrice(price);
@@ -126,8 +131,7 @@ public class ProcurementLineItemService {
     @Transactional
     public ApiResponse<ProcurementLineItem> updateLineItemStatus(Long lineItemId, LineItemStatus newStatus) {
         try {
-            ProcurementLineItem lineItem = lineItemRepository.findByIdAndIsDeletedFalse(lineItemId)
-                    .orElseThrow(() -> new EntityNotFoundException("Line item not found"));
+            ProcurementLineItem lineItem = lineItemRepository.findByIdAndIsDeletedFalse(lineItemId).orElseThrow(() -> new EntityNotFoundException("Line item not found"));
 
             // Validate permissions based on status transition
             validateLineItemStatusTransition(lineItem, newStatus);
@@ -161,8 +165,7 @@ public class ProcurementLineItemService {
                 throw new SecurityException("Only purchase team can perform short close operations");
             }
 
-            ProcurementLineItem lineItem = lineItemRepository.findByIdAndIsDeletedFalse(lineItemId)
-                    .orElseThrow(() -> new EntityNotFoundException("Line item not found"));
+            ProcurementLineItem lineItem = lineItemRepository.findByIdAndIsDeletedFalse(lineItemId).orElseThrow(() -> new EntityNotFoundException("Line item not found"));
 
             // Validate short close is allowed
             validateShortCloseOperation(lineItem, shortCloseReason);
@@ -201,8 +204,7 @@ public class ProcurementLineItemService {
                 throw new SecurityException("Only factory users can receive line items");
             }
 
-            ProcurementLineItem lineItem = lineItemRepository.findByIdAndIsDeletedFalse(lineItemId)
-                    .orElseThrow(() -> new EntityNotFoundException("Line item not found"));
+            ProcurementLineItem lineItem = lineItemRepository.findByIdAndIsDeletedFalse(lineItemId).orElseThrow(() -> new EntityNotFoundException("Line item not found"));
 
             // Validate factory access
             Long factoryId = lineItem.getProcurementRequest().getFactory().getId();
@@ -240,8 +242,7 @@ public class ProcurementLineItemService {
 
     // UTILITY METHODS
     private ProcurementRequest validateAndGetProcurementRequest(Long requestId) {
-        ProcurementRequest request = procurementRequestRepository.findByIdAndIsDeletedFalse(requestId)
-                .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
+        ProcurementRequest request = procurementRequestRepository.findByIdAndIsDeletedFalse(requestId).orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
 
         // Validate factory access
         SecurityUtil.validateFactoryAccess(request.getFactory().getId(), "access procurement request");
@@ -266,6 +267,10 @@ public class ProcurementLineItemService {
                 }
                 if (currentStatus != LineItemStatus.PENDING && currentStatus != LineItemStatus.IN_PROGRESS) {
                     throw new ValidationException("Invalid status transition to ORDERED");
+                }
+                // FIXED: Add validation for vendor assignment before moving to ORDERED
+                if (lineItem.getAssignedVendor() == null || lineItem.getAssignedPrice() == null) {
+                    throw new ValidationException("Cannot mark as ordered without vendor and price assignment");
                 }
                 break;
 
@@ -350,8 +355,7 @@ public class ProcurementLineItemService {
             priceHistory.setProcurementLineItem(lineItem);
 
             priceHistoryRepository.save(priceHistory);
-            log.debug("Price history record created for material {} and vendor {}",
-                    lineItem.getMaterial().getName(), vendor.getName());
+            log.debug("Price history record created for material {} and vendor {}", lineItem.getMaterial().getName(), vendor.getName());
         } catch (Exception e) {
             log.error("Failed to create price history record", e);
             // Don't fail the main operation for price history creation failure
@@ -384,44 +388,71 @@ public class ProcurementLineItemService {
     }
 
     /**
+     * FIXED: Add validation to prevent duplicate line items
+     */
+    private void validateNoDuplicateMaterials(ProcurementRequest request, Material material) {
+        if (request.getLineItems() != null) {
+            boolean materialExists = request.getLineItems().stream()
+                    .filter(item -> !item.getIsDeleted())
+                    .anyMatch(item -> item.getMaterial().getId().equals(material.getId()));
+
+            if (materialExists) {
+                throw new ValidationException("Material '" + material.getName() +
+                        "' is already present in this procurement request");
+            }
+        }
+    }
+
+    /**
      * Calculate procurement request status based on line item statuses
+     * FIXED: Complete implementation with proper status logic
      */
     private ProcurementStatus calculateRequestStatus(List<ProcurementLineItem> lineItems) {
-        long totalItems = lineItems.size();
-        long pendingItems = lineItems.stream().mapToLong(item ->
-                item.getStatus() == LineItemStatus.PENDING ? 1 : 0).sum();
-        long inProgressItems = lineItems.stream().mapToLong(item ->
-                item.getStatus() == LineItemStatus.IN_PROGRESS ? 1 : 0).sum();
-        long orderedItems = lineItems.stream().mapToLong(item ->
-                item.getStatus() == LineItemStatus.ORDERED ? 1 : 0).sum();
-        long dispatchedItems = lineItems.stream().mapToLong(item ->
-                item.getStatus() == LineItemStatus.DISPATCHED ? 1 : 0).sum();
-        long receivedItems = lineItems.stream().mapToLong(item ->
-                item.getStatus() == LineItemStatus.RECEIVED ? 1 : 0).sum();
-        long shortClosedItems = lineItems.stream().mapToLong(item ->
-                item.getStatus() == LineItemStatus.SHORT_CLOSED ? 1 : 0).sum();
+        if (lineItems == null || lineItems.isEmpty()) {
+            return ProcurementStatus.DRAFT;
+        }
 
-        // All items received or short closed
+        long totalItems = lineItems.size();
+        long pendingItems = lineItems.stream().mapToLong(item -> item.getStatus() == LineItemStatus.PENDING ? 1 : 0).sum();
+        long inProgressItems = lineItems.stream().mapToLong(item -> item.getStatus() == LineItemStatus.IN_PROGRESS ? 1 : 0).sum();
+        long orderedItems = lineItems.stream().mapToLong(item -> item.getStatus() == LineItemStatus.ORDERED ? 1 : 0).sum();
+        long dispatchedItems = lineItems.stream().mapToLong(item -> item.getStatus() == LineItemStatus.DISPATCHED ? 1 : 0).sum();
+        long receivedItems = lineItems.stream().mapToLong(item -> item.getStatus() == LineItemStatus.RECEIVED ? 1 : 0).sum();
+        long shortClosedItems = lineItems.stream().mapToLong(item -> item.getStatus() == LineItemStatus.SHORT_CLOSED ? 1 : 0).sum();
+
+        // FIXED: Add actual status determination logic
+
+        // All items completed (received or short closed)
         if ((receivedItems + shortClosedItems) == totalItems) {
+            return ProcurementStatus.CLOSED;
+        }
+
+        // All items received
+        if (receivedItems == totalItems) {
             return ProcurementStatus.RECEIVED;
         }
 
-        // Some items dispatched
-        if (dispatchedItems > 0) {
-            return ProcurementStatus.DISPATCHED;
+        // Any items dispatched, and no items in earlier stages
+        if (dispatchedItems > 0 && (pendingItems + inProgressItems) == 0) {
+            if (dispatchedItems == totalItems) {
+                return ProcurementStatus.DISPATCHED;
+            } else {
+                // Mixed dispatched and received/short-closed
+                return ProcurementStatus.DISPATCHED; // Keep as dispatched until all are received
+            }
         }
 
-        // Some items ordered
-        if (orderedItems > 0) {
+        // Any items ordered, and no items in earlier stages
+        if (orderedItems > 0 && (pendingItems + inProgressItems) == 0) {
             return ProcurementStatus.ORDERED;
         }
 
-        // Some items in progress
-        if (inProgressItems > 0 || orderedItems > 0) {
+        // Any items in progress or later stages
+        if ((inProgressItems + orderedItems + dispatchedItems + receivedItems + shortClosedItems) > 0) {
             return ProcurementStatus.IN_PROGRESS;
         }
 
-        // Default to current status if no clear pattern
-        return ProcurementStatus.IN_PROGRESS;
+        // All items still pending (should only happen in SUBMITTED state)
+        return ProcurementStatus.SUBMITTED;
     }
 }

@@ -5,10 +5,7 @@ import com.sungroup.procurement.dto.request.FilterDataList;
 import com.sungroup.procurement.dto.response.ApiResponse;
 import com.sungroup.procurement.dto.response.PaginationResponse;
 import com.sungroup.procurement.entity.*;
-import com.sungroup.procurement.entity.enums.LineItemStatus;
-import com.sungroup.procurement.entity.enums.Priority;
-import com.sungroup.procurement.entity.enums.ProcurementStatus;
-import com.sungroup.procurement.entity.enums.UserRole;
+import com.sungroup.procurement.entity.enums.*;
 import com.sungroup.procurement.exception.EntityNotFoundException;
 import com.sungroup.procurement.exception.ValidationException;
 import com.sungroup.procurement.repository.*;
@@ -325,10 +322,18 @@ public class ProcurementRequestService {
             ProcurementRequest request = procurementRequestRepository.findByIdActive(id)
                     .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
 
-            // Validate status
+            // Validate factory access
+            validateFactoryAccess(request);
+
+            // FIXED: Validate status - can only mark SUBMITTED or IN_PROGRESS for approval
             if (request.getStatus() != ProcurementStatus.SUBMITTED &&
                     request.getStatus() != ProcurementStatus.IN_PROGRESS) {
                 throw new ValidationException("Can only mark submitted or in-progress requests for approval");
+            }
+
+            // FIXED: Prevent marking if already requires approval
+            if (request.getRequiresApproval()) {
+                throw new ValidationException("Request already requires approval");
             }
 
             request.setRequiresApproval(true);
@@ -427,29 +432,53 @@ public class ProcurementRequestService {
     @Transactional
     public ApiResponse<ProcurementRequest> closeRequest(Long id) {
         try {
-            // Only purchase team can close requests
+            ProcurementRequest request = procurementRequestRepository.findByIdActive(id)
+                    .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
+
+            // Validate permissions
             if (!SecurityUtil.isCurrentUserPurchaseTeamOrManagement()) {
                 throw new SecurityException("Only purchase team can close requests");
             }
 
-            ProcurementRequest request = procurementRequestRepository.findByIdAndIsDeletedFalse(id)
-                    .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
+            // Validate factory access
+            validateFactoryAccess(request);
 
-            // Validate status
+            // FIXED: Validate all line items are received or short closed
+            if (request.getLineItems() != null) {
+                boolean hasIncompleteItems = request.getLineItems().stream()
+                        .filter(item -> !item.getIsDeleted())
+                        .anyMatch(item -> item.getStatus() != LineItemStatus.RECEIVED &&
+                                item.getStatus() != LineItemStatus.SHORT_CLOSED);
+
+                if (hasIncompleteItems) {
+                    throw new ValidationException("Cannot close request with incomplete line items. " +
+                            "All items must be received or short closed.");
+                }
+
+                // FIXED: Check for pending returns
+                for (ProcurementLineItem lineItem : request.getLineItems()) {
+                    if (!lineItem.getIsDeleted()) {
+                        long pendingReturns = returnRequestRepository.countByLineItemIdAndStatus(
+                                lineItem.getId(), ReturnStatus.RETURN_REQUESTED);
+                        if (pendingReturns > 0) {
+                            throw new ValidationException("Cannot close request with pending return requests. " +
+                                    "All returns must be approved first.");
+                        }
+                    }
+                }
+            }
+
+            // Validate current status allows closure
             if (request.getStatus() != ProcurementStatus.RECEIVED) {
                 throw new ValidationException("Only received requests can be closed");
             }
 
-            // CRITICAL: Check for pending returns using the return service
-            if (!returnRequestService.canCloseProcurementRequest(id)) {
-                throw new ValidationException("Cannot close request with pending return requests");
-            }
-
             request.setStatus(ProcurementStatus.CLOSED);
-            ProcurementRequest updatedRequest = procurementRequestRepository.save(request);
+            ProcurementRequest closedRequest = procurementRequestRepository.save(request);
 
             log.info("Procurement request closed: {}", request.getRequestNumber());
-            return ApiResponse.success("Request closed successfully", updatedRequest);
+            return ApiResponse.success("Request closed successfully", closedRequest);
+
         } catch (EntityNotFoundException | ValidationException | SecurityException e) {
             return ApiResponse.error(e.getMessage());
         } catch (Exception e) {
@@ -605,57 +634,110 @@ public class ProcurementRequestService {
     }
 
     private void validateEditPermissions(ProcurementRequest existingRequest, ProcurementRequest requestDetails) {
-        UserRole currentUserRole = SecurityUtil.getCurrentUserRole();
-        ProcurementStatus currentStatus = existingRequest.getStatus();
-
-        // Check if approval is required
-        if (existingRequest.getRequiresApproval() && currentUserRole != UserRole.MANAGEMENT) {
-            throw new ValidationException("Request requires management approval before any changes can be made");
+        // FIXED: Prevent editing when approval is required
+        if (existingRequest.getRequiresApproval() && !SecurityUtil.isCurrentUserManagement()) {
+            throw new ValidationException("Cannot edit request while it requires management approval. " +
+                    "Request must be approved first.");
         }
 
+        ProcurementStatus currentStatus = existingRequest.getStatus();
+        UserRole currentUserRole = SecurityUtil.getCurrentUserRole();
+        String currentUsername = SecurityUtil.getCurrentUsername();
+
+        // Validate edit permissions based on status and role
         switch (currentStatus) {
             case DRAFT:
                 // Only factory user (creator) can edit
                 if (currentUserRole != UserRole.FACTORY_USER) {
                     throw new SecurityException("Only factory users can edit draft requests");
                 }
-                validateIsCreator(existingRequest);
+                if (!existingRequest.getCreatedBy().equals(currentUsername)) {
+                    throw new SecurityException("Only the creator can edit draft requests");
+                }
                 break;
 
             case SUBMITTED:
-                // Only purchase team can edit (assignment only)
-                if (currentUserRole != UserRole.PURCHASE_TEAM && currentUserRole != UserRole.MANAGEMENT) {
+                // Only purchase team can edit (limited fields)
+                if (!SecurityUtil.isCurrentUserPurchaseTeamOrManagement()) {
                     throw new SecurityException("Only purchase team can edit submitted requests");
                 }
-                validateOnlyAssignmentChanges(requestDetails);
+                validateSubmittedEditFields(requestDetails);
                 break;
 
             case IN_PROGRESS:
-                // Only purchase team can edit
-                if (currentUserRole != UserRole.PURCHASE_TEAM && currentUserRole != UserRole.MANAGEMENT) {
+                // Only purchase team can edit (limited fields)
+                if (!SecurityUtil.isCurrentUserPurchaseTeamOrManagement()) {
                     throw new SecurityException("Only purchase team can edit in-progress requests");
                 }
+                validateInProgressEditFields(requestDetails);
                 break;
 
             case ORDERED:
             case DISPATCHED:
-                // Only status changes allowed
-                if (currentUserRole != UserRole.PURCHASE_TEAM && currentUserRole != UserRole.MANAGEMENT) {
-                    throw new SecurityException("Only purchase team can update ordered/dispatched requests");
+                // Only status updates allowed
+                if (!SecurityUtil.isCurrentUserPurchaseTeamOrManagement()) {
+                    throw new SecurityException("Only purchase team can edit ordered/dispatched requests");
                 }
-                validateOnlyStatusChanges(requestDetails);
+                validateOrderedDispatchedEditFields(requestDetails);
                 break;
 
             case RECEIVED:
-                // Only factory users can confirm receipt
-                if (currentUserRole != UserRole.FACTORY_USER) {
-                    throw new SecurityException("Only factory users can update received requests");
+                // Only factory users can mark as received
+                if (!SecurityUtil.isCurrentUserFactoryUser()) {
+                    throw new SecurityException("Only factory users can edit received requests");
                 }
-                validateIsFromSameFactory(existingRequest);
+                validateReceivedEditFields(requestDetails);
                 break;
 
             case CLOSED:
                 throw new ValidationException("Closed requests cannot be modified");
+
+            default:
+                throw new ValidationException("Invalid request status for editing");
+        }
+    }
+
+    private void validateSubmittedEditFields(ProcurementRequest requestDetails) {
+        // Only assignedTo can be changed in SUBMITTED status
+        if (requestDetails.getJustification() != null ||
+                requestDetails.getPriority() != null ||
+                requestDetails.getExpectedDeliveryDate() != null ||
+                (requestDetails.getLineItems() != null && !requestDetails.getLineItems().isEmpty())) {
+            throw new ValidationException("Only assignment can be changed in submitted requests");
+        }
+    }
+
+    private void validateInProgressEditFields(ProcurementRequest requestDetails) {
+        // Limited fields can be changed in IN_PROGRESS status
+        if (requestDetails.getJustification() != null ||
+                requestDetails.getPriority() != null ||
+                requestDetails.getExpectedDeliveryDate() != null ||
+                (requestDetails.getLineItems() != null && !requestDetails.getLineItems().isEmpty())) {
+            throw new ValidationException("Only assignment and approval flag can be changed in in-progress requests");
+        }
+    }
+
+    private void validateOrderedDispatchedEditFields(ProcurementRequest requestDetails) {
+        // Only status can be updated in ORDERED/DISPATCHED
+        if (requestDetails.getJustification() != null ||
+                requestDetails.getPriority() != null ||
+                requestDetails.getExpectedDeliveryDate() != null ||
+                requestDetails.getAssignedTo() != null ||
+                requestDetails.getRequiresApproval() != null ||
+                (requestDetails.getLineItems() != null && !requestDetails.getLineItems().isEmpty())) {
+            throw new ValidationException("Only status can be updated in ordered/dispatched requests");
+        }
+    }
+
+    private void validateReceivedEditFields(ProcurementRequest requestDetails) {
+        // Only status to CLOSED can be updated in RECEIVED
+        if (requestDetails.getJustification() != null ||
+                requestDetails.getPriority() != null ||
+                requestDetails.getExpectedDeliveryDate() != null ||
+                requestDetails.getAssignedTo() != null ||
+                requestDetails.getRequiresApproval() != null ||
+                (requestDetails.getLineItems() != null && !requestDetails.getLineItems().isEmpty())) {
+            throw new ValidationException("Only status can be updated in received requests");
         }
     }
 
@@ -864,11 +946,22 @@ public class ProcurementRequestService {
             throw new ValidationException("At least one line item is required");
         }
 
-        // Validate line items
+        // FIXED: Add duplicate material validation
+        Set<Long> materialIds = new HashSet<>();
         for (ProcurementLineItem lineItem : request.getLineItems()) {
             if (lineItem.getMaterial() == null || lineItem.getMaterial().getId() == null) {
                 throw new ValidationException("Material is required for all line items");
             }
+
+            Long materialId = lineItem.getMaterial().getId();
+            if (materialIds.contains(materialId)) {
+                // Get material name for better error message
+                Material material = materialRepository.findById(materialId).orElse(null);
+                String materialName = material != null ? material.getName() : "Unknown";
+                throw new ValidationException("Duplicate material found: " + materialName +
+                        ". Each material can only appear once in a procurement request.");
+            }
+            materialIds.add(materialId);
 
             if (lineItem.getRequestedQuantity() == null || lineItem.getRequestedQuantity().compareTo(BigDecimal.ZERO) <= 0) {
                 throw new ValidationException("Requested quantity must be greater than zero");
