@@ -51,12 +51,4 @@ public interface BaseRepository<T, ID> extends JpaRepository<T, ID>, JpaSpecific
         Specification<T> spec = (root, query, cb) -> cb.equal(root.get("isDeleted"), false);
         return count(spec);
     }
-
-    /**
-     * Soft delete by setting isDeleted = true
-     */
-    default void softDelete(T entity) {
-        // This would need to be implemented in the service layer
-        // as we can't directly modify entities in repository interfaces
-    }
 }
