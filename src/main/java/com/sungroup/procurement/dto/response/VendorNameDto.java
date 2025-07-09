@@ -12,19 +12,36 @@ public class VendorNameDto {
     private String name;
     private String email;
     private String contactNumber;
+    private String contactPersonName; // NEW FIELD ADDED
 
-    // Constructor for name only
+    // Existing constructors for backward compatibility
     public VendorNameDto(String name) {
         this.name = name;
     }
 
-    // For display in frontend with contact info
+    // Constructor without contactPersonName for backward compatibility
+    public VendorNameDto(Long id, String name, String email, String contactNumber) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+        this.contactNumber = contactNumber;
+        this.contactPersonName = null; // Default to null
+    }
+
+    // Updated display method to include contact person
     public String getDisplayName() {
-        if (email != null && !email.isEmpty()) {
-            return name + " (" + email + ")";
-        } else if (contactNumber != null && !contactNumber.isEmpty()) {
-            return name + " (" + contactNumber + ")";
+        StringBuilder displayName = new StringBuilder(name);
+
+        if (contactPersonName != null && !contactPersonName.isEmpty()) {
+            displayName.append(" - ").append(contactPersonName);
         }
-        return name;
+
+        if (email != null && !email.isEmpty()) {
+            displayName.append(" (").append(email).append(")");
+        } else if (contactNumber != null && !contactNumber.isEmpty()) {
+            displayName.append(" (").append(contactNumber).append(")");
+        }
+
+        return displayName.toString();
     }
 }

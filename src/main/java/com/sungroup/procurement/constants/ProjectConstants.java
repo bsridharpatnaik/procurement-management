@@ -53,6 +53,8 @@ public class ProjectConstants {
     public static final String CANNOT_CANCEL_DISPATCHED = "Cannot cancel dispatched requests";
     public static final String CANNOT_REMOVE_PROCESSED_ITEM = "Cannot remove line item with vendor assignment";
     public static final String ALREADY_CANCELLED = "Request is already cancelled";
+    public static final String REQUEST_SUBMITTED_DIRECTLY = "Request created and submitted successfully";
+    public static final String VENDOR_ASSIGNED_SUCCESS = "Vendor assigned successfully";
 
     private ProjectConstants() {
         // Private constructor to prevent instantiation

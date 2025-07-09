@@ -195,4 +195,42 @@ public class SecurityUtil {
         UserRole role = getCurrentUserRole();
         return role == UserRole.PURCHASE_TEAM || role == UserRole.MANAGEMENT || role == UserRole.ADMIN;
     }
+
+    /**
+     * Get current user's factory ID (for factory users)
+     * Returns null if user is not factory user or has multiple factories
+     */
+    public static Long getCurrentUserFactoryId() {
+        User currentUser = getCurrentUser();
+        if (currentUser == null || currentUser.getRole() != UserRole.FACTORY_USER) {
+            return null;
+        }
+
+        Set<Factory> factories = currentUser.getAssignedFactories();
+        if (factories != null && factories.size() == 1) {
+            return factories.iterator().next().getId();
+        }
+
+        return null;
+    }
+
+    /**
+     * Check if current user has access to specific factory
+     */
+    public static boolean hasFactoryAccess(Long factoryId) {
+        User currentUser = getCurrentUser();
+        if (currentUser == null) {
+            return false;
+        }
+
+        // Non-factory users have access to all factories
+        if (currentUser.getRole() != UserRole.FACTORY_USER) {
+            return true;
+        }
+
+        // Factory users only have access to their assigned factories
+        Set<Factory> assignedFactories = currentUser.getAssignedFactories();
+        return assignedFactories != null &&
+                assignedFactories.stream().anyMatch(f -> f.getId().equals(factoryId));
+    }
 }

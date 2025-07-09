@@ -1,15 +1,18 @@
 package com.sungroup.procurement.service;
 
 import com.sungroup.procurement.constants.ProjectConstants;
+import com.sungroup.procurement.dto.SmartVendorTypeaheadDto;
 import com.sungroup.procurement.dto.request.FilterDataList;
 import com.sungroup.procurement.dto.response.ApiResponse;
 import com.sungroup.procurement.dto.response.PaginationResponse;
 import com.sungroup.procurement.dto.response.VendorNameDto;
+import com.sungroup.procurement.entity.MaterialVendorHistory;
 import com.sungroup.procurement.entity.Vendor;
 import com.sungroup.procurement.exception.DuplicateEntityException;
 import com.sungroup.procurement.exception.EntityNotFoundException;
 import com.sungroup.procurement.exception.ValidationException;
 import com.sungroup.procurement.repository.MaterialPriceHistoryRepository;
+import com.sungroup.procurement.repository.MaterialVendorHistoryRepository;
 import com.sungroup.procurement.repository.ProcurementLineItemRepository;
 import com.sungroup.procurement.repository.VendorRepository;
 import com.sungroup.procurement.specification.VendorSpecification;
@@ -25,6 +28,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+import static com.sungroup.procurement.util.SecurityUtil.getCurrentUserFactoryId;
 
 @Service
 @RequiredArgsConstructor
@@ -36,6 +43,8 @@ public class VendorService {
 
     private final ProcurementLineItemRepository procurementLineItemRepository;
     private final MaterialPriceHistoryRepository priceHistoryRepository;
+    private final MaterialVendorHistoryRepository materialVendorHistoryRepository;
+
 
     // READ Operations
     public ApiResponse<List<Vendor>> findVendorsWithFilters(FilterDataList filterData, Pageable pageable) {
@@ -235,6 +244,10 @@ public class VendorService {
                 throw new ValidationException("Invalid email format");
             }
         }
+
+        if (vendor.getContactPersonName() != null && vendor.getContactPersonName().trim().isEmpty()) {
+            throw new ValidationException("Contact person name cannot be empty");
+        }
     }
 
     private void validateVendorForUpdate(Vendor vendorDetails, Vendor existingVendor) {
@@ -290,6 +303,11 @@ public class VendorService {
             String trimmedContact = vendor.getContactNumber().trim();
             vendor.setContactNumber(trimmedContact.isEmpty() ? null : trimmedContact);
         }
+        // Trim contact person name
+        if (vendor.getContactPersonName() != null) {
+            String trimmedContactPerson = vendor.getContactPersonName().trim();
+            vendor.setContactPersonName(trimmedContactPerson.isEmpty() ? null : trimmedContactPerson);
+        }
     }
 
     public ApiResponse<List<String>> getAllVendorNames(String search) {
@@ -334,4 +352,64 @@ public class VendorService {
             return ApiResponse.error("Failed to fetch vendor names with IDs");
         }
     }
+
+    public ApiResponse<List<SmartVendorTypeaheadDto>> getSmartVendorTypeahead(Long materialId, String search, Integer limit) {
+        try {
+            List<SmartVendorTypeaheadDto> result = new ArrayList<>();
+            Pageable pageable = PageRequest.of(0, limit != null ? limit : 50);
+
+            // 1. Get vendors with history for this material (preferred)
+            List<VendorNameDto> preferredVendors = vendorRepository.findVendorsForMaterialOrderedByHistory(materialId, pageable);
+            for (VendorNameDto vendor : preferredVendors) {
+                // Get history details
+                Optional<MaterialVendorHistory> history = materialVendorHistoryRepository
+                        .findByMaterialIdAndVendorIdAndFactoryId(materialId, vendor.getId(), getCurrentUserFactoryId());
+
+                SmartVendorTypeaheadDto dto = new SmartVendorTypeaheadDto();
+                dto.setId(vendor.getId());
+                dto.setName(vendor.getName());
+                dto.setEmail(vendor.getEmail());
+                dto.setContactNumber(vendor.getContactNumber());
+                dto.setContactPersonName(vendor.getContactPersonName());
+                dto.setCategory("PREFERRED");
+
+                if (history.isPresent()) {
+                    dto.setLastPrice(history.get().getLastPrice());
+                    dto.setLastOrderedDate(history.get().getLastOrderedDate());
+                    dto.setOrderCount(history.get().getOrderCount());
+                }
+
+                result.add(dto);
+            }
+
+            // 2. Get other vendors (not used for this material)
+            List<VendorNameDto> otherVendors = vendorRepository.findVendorsNotUsedForMaterial(materialId, pageable);
+            for (VendorNameDto vendor : otherVendors) {
+                SmartVendorTypeaheadDto dto = new SmartVendorTypeaheadDto();
+                dto.setId(vendor.getId());
+                dto.setName(vendor.getName());
+                dto.setEmail(vendor.getEmail());
+                dto.setContactNumber(vendor.getContactNumber());
+                dto.setContactPersonName(vendor.getContactPersonName());
+                dto.setCategory("OTHER");
+                result.add(dto);
+            }
+
+            // 3. Apply search filter if provided
+            if (search != null && !search.trim().isEmpty()) {
+                String searchLower = search.toLowerCase();
+                result = result.stream()
+                        .filter(vendor -> vendor.getName().toLowerCase().contains(searchLower) ||
+                                (vendor.getContactPersonName() != null &&
+                                        vendor.getContactPersonName().toLowerCase().contains(searchLower)))
+                        .collect(Collectors.toList());
+            }
+
+            return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, result);
+        } catch (Exception e) {
+            log.error("Error fetching smart vendor typeahead for material: {}", materialId, e);
+            return ApiResponse.error("Failed to fetch vendor suggestions");
+        }
+    }
+
 }

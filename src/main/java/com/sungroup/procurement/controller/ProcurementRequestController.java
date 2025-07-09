@@ -358,4 +358,43 @@ public class ProcurementRequestController {
         // Implementation needed in service
         return ResponseEntity.ok(ApiResponse.success("Edit permission checked", true));
     }
+
+    @Operation(summary = "Create and submit procurement request directly (Purchase Team)",
+            description = "Purchase team can create and submit requests directly, bypassing draft status")
+    @PostMapping("/create-and-submit")
+    public ResponseEntity<ApiResponse<ProcurementRequest>> createAndSubmitRequest(
+            @Valid @RequestBody ProcurementRequest request) {
+
+        log.info("Purchase team creating and submitting request directly for factory: {}",
+                request.getFactory() != null ? request.getFactory().getId() : "null");
+
+        ApiResponse<ProcurementRequest> response = procurementRequestService.createAndSubmitRequest(request);
+
+        if (response.isSuccess()) {
+            return ResponseEntity.ok(response);
+        } else {
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
+    @Operation(summary = "Assign vendor to line item",
+            description = "Assign vendor and price to a specific line item")
+    @PutMapping("/{requestId}/line-items/{lineItemId}/assign-vendor")
+    public ResponseEntity<ApiResponse<ProcurementRequest>> assignVendorToLineItem(
+            @PathVariable Long requestId,
+            @PathVariable Long lineItemId,
+            @RequestParam Long vendorId,
+            @RequestParam BigDecimal price) {
+
+        log.info("Assigning vendor {} to line item {} in request {}", vendorId, lineItemId, requestId);
+
+        ApiResponse<ProcurementRequest> response = procurementRequestService.assignVendorToLineItem(
+                requestId, lineItemId, vendorId, price);
+
+        if (response.isSuccess()) {
+            return ResponseEntity.ok(response);
+        } else {
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
 }

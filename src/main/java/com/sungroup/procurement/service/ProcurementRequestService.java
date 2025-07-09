@@ -49,6 +49,8 @@ public class ProcurementRequestService {
     private final ReturnRequestRepository returnRequestRepository;
     private final FilterService filterService;
     private final ReturnRequestService returnRequestService;
+    private final MaterialVendorHistoryService materialVendorHistoryService;
+    private final PurchaseHistoryService purchaseHistoryService;
 
     public ApiResponse<List<ProcurementRequest>> findRequestsWithFilters(FilterDataList filterData, Pageable pageable) {
         try {
@@ -857,11 +859,30 @@ public class ProcurementRequestService {
         if (request.getFactory() == null || request.getFactory().getId() == null) {
             throw new ValidationException("Factory is required");
         }
-        if (request.getPriority() == null) {
-            request.setPriority(Priority.MEDIUM);
-        }
+
         if (request.getLineItems() == null || request.getLineItems().isEmpty()) {
             throw new ValidationException("At least one line item is required");
+        }
+
+        // Validate line items
+        for (ProcurementLineItem lineItem : request.getLineItems()) {
+            if (lineItem.getMaterial() == null || lineItem.getMaterial().getId() == null) {
+                throw new ValidationException("Material is required for all line items");
+            }
+
+            if (lineItem.getRequestedQuantity() == null || lineItem.getRequestedQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new ValidationException("Requested quantity must be greater than zero");
+            }
+        }
+
+        // Validate justification length if provided
+        if (request.getJustification() != null && request.getJustification().length() > 1000) {
+            throw new ValidationException("Justification cannot exceed 1000 characters");
+        }
+
+        // Validate expected delivery date is not in the past
+        if (request.getExpectedDeliveryDate() != null && request.getExpectedDeliveryDate().isBefore(java.time.LocalDate.now())) {
+            throw new ValidationException("Expected delivery date cannot be in the past");
         }
     }
 
@@ -1332,6 +1353,155 @@ public class ProcurementRequestService {
         } catch (Exception e) {
             log.error("Error getting next valid statuses", e);
             return ApiResponse.error("Failed to get valid statuses");
+        }
+    }
+
+    @Transactional
+    public ApiResponse<ProcurementRequest> assignVendorToLineItem(Long requestId, Long lineItemId, Long vendorId, BigDecimal price) {
+        try {
+            // Validate that only purchase team can assign vendors
+            if (!SecurityUtil.isCurrentUserPurchaseTeamOrManagement()) {
+                throw new SecurityException("Only purchase team can assign vendors");
+            }
+
+            // Validate price
+            if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
+                throw new ValidationException("Price must be greater than zero");
+            }
+
+            ProcurementRequest request = procurementRequestRepository.findByIdActive(requestId)
+                    .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
+
+            // Validate request status
+            if (request.getStatus() != ProcurementStatus.IN_PROGRESS && request.getStatus() != ProcurementStatus.SUBMITTED) {
+                throw new ValidationException("Can only assign vendors to requests in SUBMITTED or IN_PROGRESS status");
+            }
+
+            // Validate factory access
+            if (SecurityUtil.isCurrentUserFactoryUser()) {
+                SecurityUtil.validateFactoryAccess(request.getFactory().getId(), "assign vendor");
+            }
+
+            // Find the line item
+            ProcurementLineItem lineItem = request.getLineItems().stream()
+                    .filter(li -> li.getId().equals(lineItemId))
+                    .findFirst()
+                    .orElseThrow(() -> new EntityNotFoundException("Line item not found"));
+
+            // Validate line item status
+            if (lineItem.getStatus() != LineItemStatus.PENDING && lineItem.getStatus() != LineItemStatus.IN_PROGRESS) {
+                throw new ValidationException("Can only assign vendors to pending or in-progress line items");
+            }
+
+            // Validate vendor exists
+            Vendor vendor = vendorRepository.findByIdAndIsDeletedFalse(vendorId)
+                    .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.VENDOR_NOT_FOUND));
+
+            // Assign vendor and price
+            lineItem.setAssignedVendor(vendor);
+            lineItem.setAssignedPrice(price);
+            lineItem.setStatus(LineItemStatus.ORDERED);
+
+            // Update request status if it's still SUBMITTED
+            if (request.getStatus() == ProcurementStatus.SUBMITTED) {
+                request.setStatus(ProcurementStatus.IN_PROGRESS);
+            }
+
+            // Save the changes
+            ProcurementRequest updatedRequest = procurementRequestRepository.save(request);
+
+            // Update material-vendor history
+            materialVendorHistoryService.updateMaterialVendorHistory(lineItem);
+
+            // Create purchase history record
+            purchaseHistoryService.createPurchaseHistory(lineItem);
+
+            log.info("Vendor {} assigned to line item {} in request {} with price {}",
+                    vendor.getName(), lineItemId, request.getRequestNumber(), price);
+
+            return ApiResponse.success(ProjectConstants.VENDOR_ASSIGNED_SUCCESS, updatedRequest);
+
+        } catch (EntityNotFoundException | ValidationException | SecurityException e) {
+            return ApiResponse.error(e.getMessage());
+        } catch (Exception e) {
+            log.error("Error assigning vendor to line item", e);
+            return ApiResponse.error("Failed to assign vendor");
+        }
+    }
+
+    public ApiResponse<ProcurementRequest> createAndSubmitRequest(ProcurementRequest request) {
+        try {
+            // Validate that only purchase team can use this method
+            if (!SecurityUtil.isCurrentUserPurchaseTeamOrManagement()) {
+                throw new SecurityException("Only purchase team can create and submit requests directly");
+            }
+
+            // Validate factory exists and is active
+            if (request.getFactory() == null || request.getFactory().getId() == null) {
+                throw new ValidationException("Factory is required");
+            }
+
+            Factory factory = factoryRepository.findByIdAndIsDeletedFalse(request.getFactory().getId())
+                    .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.FACTORY_NOT_FOUND));
+
+            request.setFactory(factory);
+
+            // Validate factory access if user is factory user (shouldn't happen for purchase team, but safety check)
+            if (SecurityUtil.isCurrentUserFactoryUser()) {
+                SecurityUtil.validateFactoryAccess(request.getFactory().getId(), "create request");
+            }
+
+            // Use the existing validation method
+            validateProcurementRequestForCreate(request);
+
+            // Set created by current user (get the User entity, not just username)
+            User currentUser = SecurityUtil.getCurrentUser();
+            if (currentUser == null) {
+                throw new SecurityException("Unable to determine current user");
+            }
+            request.setCreatedBy(currentUser.getUsername());
+
+            // Set status directly to SUBMITTED (bypass DRAFT)
+            request.setStatus(ProcurementStatus.SUBMITTED);
+
+            // Generate request number
+            String requestNumber = generateRequestNumber(request.getFactory());
+            request.setRequestNumber(requestNumber);
+
+            // Set default values
+            if (request.getPriority() == null) {
+                request.setPriority(Priority.MEDIUM);
+            }
+            request.setRequiresApproval(false);
+            request.setIsShortClosed(false);
+
+            // Save the request first
+            ProcurementRequest savedRequest = procurementRequestRepository.save(request);
+
+            // Update line items with request reference and set initial status
+            if (request.getLineItems() != null && !request.getLineItems().isEmpty()) {
+                for (ProcurementLineItem lineItem : request.getLineItems()) {
+                    lineItem.setProcurementRequest(savedRequest);
+                    lineItem.setStatus(LineItemStatus.PENDING);
+                    lineItem.setIsShortClosed(false);
+                    lineItem.setHasReturns(false);
+                    lineItem.setTotalReturnedQuantity(BigDecimal.ZERO);
+                }
+            }
+
+            // Save again to persist line item changes
+            savedRequest = procurementRequestRepository.save(savedRequest);
+
+            log.info("Purchase team created and submitted request: {} for factory: {}",
+                    savedRequest.getRequestNumber(), factory.getName());
+
+            return ApiResponse.success(ProjectConstants.REQUEST_SUBMITTED_DIRECTLY, savedRequest);
+
+        } catch (SecurityException | ValidationException | EntityNotFoundException e) {
+            return ApiResponse.error(e.getMessage());
+        } catch (Exception e) {
+            log.error("Error creating and submitting procurement request", e);
+            return ApiResponse.error("Failed to create and submit request");
         }
     }
 }

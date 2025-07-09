@@ -1,6 +1,7 @@
 package com.sungroup.procurement.controller;
 
 import com.sungroup.procurement.constants.ProjectConstants;
+import com.sungroup.procurement.dto.SmartVendorTypeaheadDto;
 import com.sungroup.procurement.dto.request.FilterDataList;
 import com.sungroup.procurement.dto.response.ApiResponse;
 import com.sungroup.procurement.dto.response.VendorNameDto;
@@ -192,6 +193,19 @@ public class VendorController {
 
         log.info("Fetching vendor names with IDs for typeahead with search: {} and limit: {}", search, limit);
         ApiResponse<List<VendorNameDto>> response = vendorService.getVendorNamesWithIds(search, limit);
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Get smart vendor typeahead for material",
+            description = "Get vendors ordered by previous usage for a specific material")
+    @GetMapping("/smart-typeahead")
+    public ResponseEntity<ApiResponse<List<SmartVendorTypeaheadDto>>> getSmartVendorTypeahead(
+            @Parameter(description = "Material ID", required = true) @RequestParam Long materialId,
+            @Parameter(description = "Search query", example = "ABC") @RequestParam(required = false) String search,
+            @Parameter(description = "Maximum results", example = "20") @RequestParam(defaultValue = "20") Integer limit) {
+
+        log.info("Fetching smart vendor typeahead for material: {}, search: {}", materialId, search);
+        ApiResponse<List<SmartVendorTypeaheadDto>> response = vendorService.getSmartVendorTypeahead(materialId, search, limit);
         return ResponseEntity.ok(response);
     }
 }
