@@ -10,7 +10,6 @@ import com.sungroup.procurement.exception.DuplicateEntityException;
 import com.sungroup.procurement.exception.EntityNotFoundException;
 import com.sungroup.procurement.exception.ValidationException;
 import com.sungroup.procurement.repository.FactoryRepository;
-import com.sungroup.procurement.repository.ProcurementRequestRepository;
 import com.sungroup.procurement.repository.UserRepository;
 import com.sungroup.procurement.specification.FactorySpecification;
 import lombok.RequiredArgsConstructor;
@@ -35,7 +34,6 @@ public class FactoryService {
     private final FilterService filterService;
 
     private final UserRepository userRepository;
-    private final ProcurementRequestRepository procurementRequestRepository;
 
     // READ Operations
     public ApiResponse<List<Factory>> findFactoriesWithFilters(FilterDataList filterData, Pageable pageable) {
@@ -152,12 +150,6 @@ public class FactoryService {
                         .map(User::getUsername)
                         .collect(Collectors.toList());
                 dependencies.add("Users: " + String.join(", ", usernames));
-            }
-
-            // Check procurement requests
-            long requestCount = procurementRequestRepository.countByFactoryIdAndIsDeletedFalse(id);
-            if (requestCount > 0) {
-                dependencies.add("Procurement Requests: " + requestCount + " requests");
             }
 
             if (!dependencies.isEmpty()) {

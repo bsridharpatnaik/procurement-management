@@ -9,9 +9,7 @@ import com.sungroup.procurement.entity.Material;
 import com.sungroup.procurement.exception.DuplicateEntityException;
 import com.sungroup.procurement.exception.EntityNotFoundException;
 import com.sungroup.procurement.exception.ValidationException;
-import com.sungroup.procurement.repository.MaterialPriceHistoryRepository;
 import com.sungroup.procurement.repository.MaterialRepository;
-import com.sungroup.procurement.repository.ProcurementLineItemRepository;
 import com.sungroup.procurement.specification.MaterialSpecification;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,9 +31,6 @@ public class MaterialService {
 
     private final MaterialRepository materialRepository;
     private final FilterService filterService;
-
-    private final ProcurementLineItemRepository procurementLineItemRepository;
-    private final MaterialPriceHistoryRepository priceHistoryRepository;
 
     // READ Operations
     public ApiResponse<List<Material>> findMaterialsWithFilters(FilterDataList filterData, Pageable pageable) {
@@ -177,7 +172,7 @@ public class MaterialService {
 
             List<String> dependencies = new ArrayList<>();
 
-            // Check procurement line items
+            /*// Check procurement line items
             long lineItemCount = procurementLineItemRepository.countByMaterialIdAndProcurementRequestIsDeletedFalse(id);
             if (lineItemCount > 0) {
                 dependencies.add("Procurement Line Items: " + lineItemCount + " items");
@@ -187,7 +182,7 @@ public class MaterialService {
             long priceHistoryCount = priceHistoryRepository.countByMaterialId(id);
             if (priceHistoryCount > 0) {
                 dependencies.add("Price History: " + priceHistoryCount + " records");
-            }
+            }*/
 
             if (!dependencies.isEmpty()) {
                 String message = "Cannot delete material '" + material.getName() +

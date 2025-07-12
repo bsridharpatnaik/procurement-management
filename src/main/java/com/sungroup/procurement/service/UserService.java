@@ -42,7 +42,6 @@ public class UserService {
     private final FactoryRepository factoryRepository;
     private final FilterService filterService;
     private final PasswordEncoder passwordEncoder;
-    private final ProcurementRequestRepository procurementRequestRepository;
     private final MaterialRepository materialRepository;
     private final VendorRepository vendorRepository;
 
@@ -421,24 +420,6 @@ public class UserService {
     // Comprehensive dependency checks (including materials/vendors)
     private List<String> checkUserDependencies(User user) {
         List<String> dependencies = new ArrayList<>();
-
-        // Procurement Requests - Created by user
-        long createdRequestsCount = procurementRequestRepository.countByCreatedByAndIsDeletedFalse(user.getUsername());
-        if (createdRequestsCount > 0) {
-            dependencies.add("Created Procurement Requests (" + createdRequestsCount + ")");
-        }
-
-        // Procurement Requests - Assigned to user
-        long assignedRequestsCount = procurementRequestRepository.countByAssignedToIdAndIsDeletedFalse(user.getId());
-        if (assignedRequestsCount > 0) {
-            dependencies.add("Assigned Procurement Requests (" + assignedRequestsCount + ")");
-        }
-
-        // Procurement Requests - Approved by user
-        long approvedRequestsCount = procurementRequestRepository.countByApprovedByIdAndIsDeletedFalse(user.getId());
-        if (approvedRequestsCount > 0) {
-            dependencies.add("Approved Procurement Requests (" + approvedRequestsCount + ")");
-        }
 
         // NEW: Materials - Created by user
         try {

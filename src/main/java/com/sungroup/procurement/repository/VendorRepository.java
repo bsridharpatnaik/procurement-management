@@ -28,21 +28,6 @@ public interface VendorRepository extends BaseRepository<Vendor, Long> {
             "ORDER BY v.name")
     List<VendorNameDto> findVendorNamesWithIdsByNameContaining(@Param("search") String search, Pageable pageable);
 
-    // NEW: Smart typeahead for material-vendor history
-    @Query("SELECT new com.sungroup.procurement.dto.response.VendorNameDto(v.id, v.name, v.email, v.contactNumber, v.contactPersonName) " +
-            "FROM Vendor v " +
-            "JOIN MaterialVendorHistory mvh ON v.id = mvh.vendor.id " +
-            "WHERE v.isDeleted = false AND mvh.material.id = :materialId " +
-            "ORDER BY mvh.lastOrderedDate DESC, mvh.orderCount DESC")
-    List<VendorNameDto> findVendorsForMaterialOrderedByHistory(@Param("materialId") Long materialId, Pageable pageable);
-
-    @Query("SELECT new com.sungroup.procurement.dto.response.VendorNameDto(v.id, v.name, v.email, v.contactNumber, v.contactPersonName) " +
-            "FROM Vendor v " +
-            "WHERE v.isDeleted = false AND v.id NOT IN " +
-            "(SELECT mvh.vendor.id FROM MaterialVendorHistory mvh WHERE mvh.material.id = :materialId) " +
-            "ORDER BY v.name")
-    List<VendorNameDto> findVendorsNotUsedForMaterial(@Param("materialId") Long materialId, Pageable pageable);
-
     long countByCreatedByAndIsDeletedFalse(String createdBy);
 
     long countByIsDeletedFalse();

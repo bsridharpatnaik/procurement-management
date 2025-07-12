@@ -195,17 +195,4 @@ public class VendorController {
         ApiResponse<List<VendorNameDto>> response = vendorService.getVendorNamesWithIds(search, limit);
         return ResponseEntity.ok(response);
     }
-
-    @Operation(summary = "Get smart vendor typeahead for material",
-            description = "Get vendors ordered by previous usage for a specific material")
-    @GetMapping("/smart-typeahead")
-    public ResponseEntity<ApiResponse<List<SmartVendorTypeaheadDto>>> getSmartVendorTypeahead(
-            @Parameter(description = "Material ID", required = true) @RequestParam Long materialId,
-            @Parameter(description = "Search query", example = "ABC") @RequestParam(required = false) String search,
-            @Parameter(description = "Maximum results", example = "20") @RequestParam(defaultValue = "20") Integer limit) {
-
-        log.info("Fetching smart vendor typeahead for material: {}, search: {}", materialId, search);
-        ApiResponse<List<SmartVendorTypeaheadDto>> response = vendorService.getSmartVendorTypeahead(materialId, search, limit);
-        return ResponseEntity.ok(response);
-    }
 }
