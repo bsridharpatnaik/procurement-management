@@ -214,4 +214,23 @@ public class ProcurementRequestSpecification extends BaseSpecification<Procureme
     public static Specification<ProcurementRequest> hasCancellationReason(String reason) {
         return fieldContains("cancellationReason", reason);
     }
+
+    public static Specification<ProcurementRequest> withFactoryAccess() {
+        return (root, query, criteriaBuilder) -> {
+            List<Long> allowedFactoryIds = SecurityUtil.getFactoryFilterForCurrentUser();
+
+            if (allowedFactoryIds == null) {
+                // Non-factory users can access all factories
+                return criteriaBuilder.conjunction();
+            }
+
+            if (allowedFactoryIds.isEmpty()) {
+                // Factory user with no assigned factories - no access
+                return criteriaBuilder.disjunction();
+            }
+
+            // Factory users can only access their assigned factories
+            return root.get("factory").get("id").in(allowedFactoryIds);
+        };
+    }
 }

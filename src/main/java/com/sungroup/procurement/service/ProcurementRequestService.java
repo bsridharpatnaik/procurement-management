@@ -55,7 +55,6 @@ public class ProcurementRequestService {
                     .and(buildProcurementRequestSpecification(filterData));
 
             Page<ProcurementRequest> requestPage = procurementRequestRepository.findAll(spec, pageable);
-
             List<ProcurementRequest> filteredRequests = ResponseFilterUtil.filterProcurementRequestsForUser(requestPage.getContent());
             PaginationResponse pagination = PaginationResponse.from(requestPage);
             return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, filteredRequests, pagination);
@@ -67,17 +66,18 @@ public class ProcurementRequestService {
 
     public ApiResponse<ProcurementRequest> findById(Long id) {
         try {
-            ProcurementRequest request = procurementRequestRepository.findByIdAndIsDeletedFalse(id)
-                    .orElseThrow(() -> new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
+            Specification<ProcurementRequest> spec = ProcurementRequestSpecification.withSecurityAndNotDeleted()
+                    .and((root, query, criteriaBuilder) -> criteriaBuilder.equal(root.get("id"), id));
 
-            // Validate factory access
-            validateFactoryAccess(request);
+            Optional<ProcurementRequest> requestOpt = procurementRequestRepository.findOne(spec);
+            ProcurementRequest request = requestOpt.orElseThrow(() ->
+                    new EntityNotFoundException(ProjectConstants.PROCUREMENT_REQUEST_NOT_FOUND));
 
-            // Filter vendor information for factory users
-            ProcurementRequest filteredRequest = filterVendorInformationForFactoryUser(request);
+            // Apply vendor information filtering
+            ProcurementRequest filteredRequest = ResponseFilterUtil.filterProcurementRequestForUser(request);
 
             return ApiResponse.success(ProjectConstants.DATA_FETCHED_SUCCESS, filteredRequest);
-        } catch (EntityNotFoundException | SecurityException e) {
+        } catch (EntityNotFoundException e) {
             return ApiResponse.error(e.getMessage());
         } catch (Exception e) {
             log.error("Error fetching procurement request by id: {}", id, e);
@@ -148,6 +148,7 @@ public class ProcurementRequestService {
             }
 
             validateProcurementRequestForCreate(request);
+            validateNoDuplicateRequest(request);
 
             // Validate factory access
             validateFactoryAccessForCreation(request.getFactory().getId());
@@ -587,37 +588,6 @@ public class ProcurementRequestService {
         }
 
         return spec;
-    }
-
-    private Specification<ProcurementRequest> applyFactoryAccessControl(Specification<ProcurementRequest> spec) {
-        if (SecurityUtil.isCurrentUserFactoryUser()) {
-            List<Long> accessibleFactoryIds = SecurityUtil.getCurrentUserAccessibleFactoryIds();
-            if (accessibleFactoryIds.isEmpty()) {
-                // Return specification that returns no results
-                return (root, query, cb) -> cb.disjunction();
-            }
-            spec = spec.and(ProcurementRequestSpecification.accessibleByFactories(accessibleFactoryIds));
-        }
-        return spec;
-    }
-
-    private void validateFactoryAccess(ProcurementRequest request) {
-        if (SecurityUtil.isCurrentUserFactoryUser()) {
-            Long factoryId = request.getFactory().getId();
-            List<Long> accessibleFactoryIds = SecurityUtil.getCurrentUserAccessibleFactoryIds();
-            if (!accessibleFactoryIds.contains(factoryId)) {
-                throw new SecurityException("Access denied to this factory's procurement requests");
-            }
-        }
-    }
-
-    private void validateFactoryAccessForCreation(Long factoryId) {
-        if (SecurityUtil.isCurrentUserFactoryUser()) {
-            List<Long> accessibleFactoryIds = SecurityUtil.getCurrentUserAccessibleFactoryIds();
-            if (!accessibleFactoryIds.contains(factoryId)) {
-                throw new SecurityException("Cannot create requests for this factory");
-            }
-        }
     }
 
     private ProcurementRequest filterVendorInformationForFactoryUser(ProcurementRequest request) {
